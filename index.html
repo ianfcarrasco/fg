@@ -644,7 +644,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const VERSION = "v7";   // se muestra en la barra: delata una caché vieja
+const VERSION = "v8";   // se muestra en la barra: delata una caché vieja
 const TEXMAX = 1600;    // lado máximo de la textura de la foto
 const DWMAX = 384;      // resolución de trabajo del mapa de profundidad
 const MWMAX = 256;      // resolución de la máscara
@@ -1046,7 +1046,7 @@ const VERT = [
 const FRAG = [
   "precision highp float;",
   "varying vec2 vUv;",
-  "uniform sampler2D uImage,uMask,uDisp,uFill;",
+  "uniform sampler2D uImage,uMask,uDisp;",
   "uniform vec2 uPan;",
   "uniform vec2 uLight;",
   "uniform float uZoom,uDispMax,uJelly,uShade,uAO;",
@@ -1061,23 +1061,6 @@ const FRAG = [
   // Si al estirarse la muestra cae FUERA de lo pintado, no traemos el fondo
   // (eso es lo que abría agujeros oscuros dentro del objeto): traemos el
   // color de la propia zona pintada, extendido hacia afuera.
-  "  if(m > 0.02){",
-  "    float msrc = texture2D(uMask, s).r;",
-  // Cuánto se ALEJÓ la muestra de la zona: en reposo el origen y el destino
-  // son el mismo punto, así que esto vale cero y la foto se ve intacta. Antes
-  // comparaba sólo contra el origen, y eso teñía de relleno cualquier zona
-  // pintada a medias aunque nada se estuviera moviendo: se veían las manchas
-  // del pincel en modo Probar.
-  "    float fuera = smoothstep(0.10, 0.45, m - msrc);",
-  "    if(fuera > 0.001){",
-  "      vec3 relleno = texture2D(uFill, s).rgb;",
-  // Sólo se reemplaza si lo que vino de afuera DESENTONA con el color de la
-  // zona. Un tono parecido se deja tal cual: así no se lavan las sombras
-  // buenas del objeto y sólo se tapan los agujeros de verdad.
-  "      float dif = distance(relleno, img);",
-  "      img = mix(img, relleno, fuera * smoothstep(0.10, 0.30, dif));",
-  "    }",
-  "  }",
   "  if(uShade > 0.001){",
   // una celda de la malla: por debajo de eso sólo se ve la interpolación
   "    float e = 0.021;",
@@ -1122,20 +1105,18 @@ function gl_init() {
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 
   ["uPan", "uLight", "uShade", "uAO", "uZoom", "uDispMax", "uJelly",
-   "uImage", "uMask", "uDisp", "uFill"].forEach((n) => { U[n] = gl.getUniformLocation(prog, n); });
+   "uImage", "uMask", "uDisp"].forEach((n) => { U[n] = gl.getUniformLocation(prog, n); });
 
-  gl.uniform1i(U.uImage, 0); gl.uniform1i(U.uFill, 1); gl.uniform1i(U.uMask, 2); gl.uniform1i(U.uDisp, 3);
+  gl.uniform1i(U.uImage, 0); gl.uniform1i(U.uMask, 2); gl.uniform1i(U.uDisp, 3);
   gl.uniform1f(U.uDispMax, STORE);
   gl.uniform2f(U.uLight, -1.0, -1.0); // luz desde arriba a la izquierda
   gl.uniform1f(U.uZoom, ZOOM);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
   TEX.image = newTex();
-  TEX.fill = newTex();
   TEX.mask = newTex();
   TEX.disp = newTex();
 
-  gl_setFill(new Uint8Array([0, 0, 0, 255]), 1, 1);
   gl_setMask(new Float32Array([0]), 1, 1);
   gl_uploadDisp(new Uint8Array([128, 128, 128, 255]), 1, 1);
   return true;
@@ -1170,135 +1151,6 @@ function gl_setMask(f, w, h) {
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, maskBytes);
   markDirty();
 }
-function gl_setFill(bytes, w, h) {
-  gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, TEX.fill);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
-  markDirty();
-}
-
-/**
- * Color de la zona pintada, extendido hacia afuera.
- *
- * Dos cuidados, porque la primera versión dejaba bandas oscuras:
- *  - la semilla se toma EROSIONADA, unos píxeles adentro del borde. Si se
- *    siembra desde el borde mismo, lo que se derrama es la línea de sombra
- *    del contorno, y eso pinta franjas marrones alrededor del objeto.
- *  - la extensión es una pirámide (push-pull): se baja promediando lo válido
- *    y se sube rellenando los huecos con el nivel de arriba. Sale suave y
- *    pareja en todas direcciones. Dilatar sumando los cuatro vecinos, que era
- *    lo de antes, deja rayas verticales y horizontales.
- */
-const FILL = { w: 0, h: 0, bytes: null, cv: null };
-function buildFill() {
-  if (!S.hasImage || !S.mask) return;
-  const w0 = Math.max(8, S.mw >> 1), h0 = Math.max(8, S.mh >> 1);
-  if (FILL.w !== w0 || FILL.h !== h0) {
-    FILL.w = w0; FILL.h = h0;
-    FILL.bytes = new Uint8Array(w0 * h0 * 4);
-    FILL.cv = document.createElement("canvas");
-  }
-  FILL.cv.width = w0; FILL.cv.height = h0;
-  const ctx = FILL.cv.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(S.imgCanvas, 0, 0, w0, h0);
-  const px = ctx.getImageData(0, 0, w0, h0).data;
-
-  const src = S.maskSoft || S.mask;
-  const dentro = new Float32Array(w0 * h0);
-  for (let y = 0; y < h0; y++) {
-    const my = Math.min(S.mh - 1, y * 2);
-    for (let x = 0; x < w0; x++) dentro[y * w0 + x] = src[my * S.mw + Math.min(S.mw - 1, x * 2)] > 0.80 ? 1 : 0;
-  }
-  // erosión de 2: la semilla queda adentro, lejos de la sombra del contorno
-  const ero = new Float32Array(w0 * h0);
-  let tmp = dentro;
-  for (let paso = 0; paso < 2; paso++) {
-    const out = paso === 0 ? ero : dentro;
-    for (let y = 0; y < h0; y++) {
-      for (let x = 0; x < w0; x++) {
-        const i = y * w0 + x;
-        let v = tmp[i];
-        if (x > 0) v = Math.min(v, tmp[i - 1]);
-        if (x < w0 - 1) v = Math.min(v, tmp[i + 1]);
-        if (y > 0) v = Math.min(v, tmp[i - w0]);
-        if (y < h0 - 1) v = Math.min(v, tmp[i + w0]);
-        out[i] = v;
-      }
-    }
-    tmp = out;
-  }
-  const semilla = tmp;
-
-  // pirámide
-  const niveles = [];
-  let w = w0, h = h0;
-  let rgb = new Float32Array(w * h * 3), a = new Float32Array(w * h);
-  for (let i = 0, o = 0; i < w * h; i++, o += 4) {
-    const s2 = semilla[i];
-    a[i] = s2;
-    rgb[i * 3] = px[o] * s2; rgb[i * 3 + 1] = px[o + 1] * s2; rgb[i * 3 + 2] = px[o + 2] * s2;
-  }
-  niveles.push({ w, h, rgb, a });
-  while (w > 1 || h > 1) {
-    const nw = Math.max(1, w >> 1), nh = Math.max(1, h >> 1);
-    const nr = new Float32Array(nw * nh * 3), na = new Float32Array(nw * nh);
-    for (let y = 0; y < nh; y++) {
-      for (let x = 0; x < nw; x++) {
-        let sr = 0, sg = 0, sb = 0, sa = 0;
-        for (let dy = 0; dy < 2; dy++) {
-          const yy = Math.min(h - 1, y * 2 + dy);
-          for (let dx = 0; dx < 2; dx++) {
-            const xx = Math.min(w - 1, x * 2 + dx), j = yy * w + xx;
-            sr += rgb[j * 3]; sg += rgb[j * 3 + 1]; sb += rgb[j * 3 + 2]; sa += a[j];
-          }
-        }
-        const k = y * nw + x;
-        na[k] = Math.min(1, sa / 4 * 2.2);        // basta con un cuarto válido
-        if (sa > 1e-5) { nr[k * 3] = sr / sa * na[k]; nr[k * 3 + 1] = sg / sa * na[k]; nr[k * 3 + 2] = sb / sa * na[k]; }
-      }
-    }
-    niveles.push({ w: nw, h: nh, rgb: nr, a: na });
-    w = nw; h = nh; rgb = nr; a = na;
-  }
-
-  // subida: cada nivel tapa sus huecos con el de arriba, interpolado
-  for (let L = niveles.length - 2; L >= 0; L--) {
-    const fino = niveles[L], grueso = niveles[L + 1];
-    const fw = fino.w, fh = fino.h, gw = grueso.w, gh = grueso.h;
-    for (let y = 0; y < fh; y++) {
-      const v = gh > 1 ? Math.min(gh - 1.001, (y - 0.5) * 0.5) : 0;
-      const y0 = Math.max(0, v | 0), y1 = Math.min(gh - 1, y0 + 1), fy = Math.max(0, v - y0);
-      for (let x = 0; x < fw; x++) {
-        const i = y * fw + x;
-        if (fino.a[i] >= 0.999) continue;
-        const u = gw > 1 ? Math.min(gw - 1.001, (x - 0.5) * 0.5) : 0;
-        const x0 = Math.max(0, u | 0), x1 = Math.min(gw - 1, x0 + 1), fx = Math.max(0, u - x0);
-        const p00 = y0 * gw + x0, p10 = y0 * gw + x1, p01 = y1 * gw + x0, p11 = y1 * gw + x1;
-        const bl = (arr, c, st) => (arr[p00 * st + c] * (1 - fx) + arr[p10 * st + c] * fx) * (1 - fy) +
-                                   (arr[p01 * st + c] * (1 - fx) + arr[p11 * st + c] * fx) * fy;
-        const ga = bl(grueso.a, 0, 1);
-        if (ga < 1e-5) continue;
-        const gr = bl(grueso.rgb, 0, 3) / ga, gg = bl(grueso.rgb, 1, 3) / ga, gb = bl(grueso.rgb, 2, 3) / ga;
-        const af = fino.a[i], k = 1 - af;
-        fino.rgb[i * 3] += gr * ga * k;
-        fino.rgb[i * 3 + 1] += gg * ga * k;
-        fino.rgb[i * 3 + 2] += gb * ga * k;
-        fino.a[i] = af + ga * k;
-      }
-    }
-  }
-
-  const base = niveles[0], b = FILL.bytes;
-  for (let i = 0, o = 0; i < w0 * h0; i++, o += 4) {
-    const aa = base.a[i] > 1e-4 ? base.a[i] : 1;
-    b[o] = clamp(base.rgb[i * 3] / aa, 0, 255);
-    b[o + 1] = clamp(base.rgb[i * 3 + 1] / aa, 0, 255);
-    b[o + 2] = clamp(base.rgb[i * 3 + 2] / aa, 0, 255);
-    b[o + 3] = 255;
-  }
-  gl_setFill(b, w0, h0);
-}
-
 function gl_uploadDisp(bytes, w, h) {
   gl.activeTexture(gl.TEXTURE3);
   gl.bindTexture(gl.TEXTURE_2D, TEX.disp);
@@ -1339,25 +1191,26 @@ const PRESETS = {
 
 /**
  * Gravedad en unidades uv: es directamente cuánto cae la zona en reposo.
- * "Del teléfono" la saca de la inclinación real: con el aparato acostado
- * (beta y gamma en cero) no hay gravedad en el plano de la foto, y parado
- * apunta hacia abajo. Eso sale de deviceorientation, que tiene signos
- * definidos por norma, no de accelerationIncludingGravity, que los invierte
- * según el navegador.
+ * "Del teléfono" la saca de la inclinación real. Con el pad, la dirección se
+ * normaliza (la elegiste vos y vale entera); con el teléfono NO se normaliza
+ * del todo: una inclinación chica tira poco y una grande tira fuerte, que es
+ * lo que uno espera al ladear el aparato.
  */
 function gravityVec() {
   // 0,066 en vez de 0,055: inclinando el teléfono de un lado al otro el
   // objeto se recuesta un 20% más que antes.
   const g = (S.p.grav / 100) * 0.066;
   if (g <= 0) return { x: 0, y: 0 };
-  let x = S.gx, y = S.gy;
   if (S.gravFollow) {
     if (!SENS.hasTilt) return { x: 0, y: 0 };
-    x = SENS.gvx; y = SENS.gvy;
+    const m = Math.hypot(SENS.gvx, SENS.gvy);
+    if (m < 1e-4) return { x: 0, y: 0 };
+    const k = g * Math.min(1, m * 1.7) / m;
+    return { x: SENS.gvx * k, y: SENS.gvy * k };
   }
-  const n = Math.hypot(x, y);
+  const n = Math.hypot(S.gx, S.gy);
   if (n < 1e-4) return { x: 0, y: 0 };
-  return { x: x / n * g, y: y / n * g };
+  return { x: S.gx / n * g, y: S.gy / n * g };
 }
 
 const DENT = 0.040; // cuánto se hunde al apoyar el dedo, en unidades uv
@@ -2127,7 +1980,6 @@ function finishStroke() {
   boxBlur(S.rigid, rsoft, S.mw, S.mh, Math.max(1, Math.round(S.mw / 120)));
   S.rigidSoft = rsoft;
   gl_setMask(soft, S.mw, S.mh);
-  buildFill();
   sampleMaskToGrid(soft);
   let covered = 0, rigidPx = 0;
   for (let i = 0; i < S.mask.length; i++) {
@@ -2363,11 +2215,18 @@ function onOrient(e) {
   M.targetX = clamp((e.gamma - SENS.ref.g) / 20, -1, 1);
   M.targetY = clamp((e.beta - SENS.ref.b) / 20, -1, 1);
 
-  // Gravedad proyectada sobre el plano de la pantalla: acostado da (0,0),
-  // parado da (0,1) hacia abajo, inclinado a la derecha da (+,·).
+  // Gravedad proyectada sobre el plano de la pantalla. La rotación del
+  // aparato es Z-X'-Y'' (alfa, beta, gamma) y el vector de gravedad en
+  // coordenadas del aparato sale de la tercera fila de esa matriz:
+  //   x (hacia la derecha de la pantalla) = cos(beta)·sin(gamma)
+  //   y (hacia abajo de la pantalla)      = sin(beta)
+  // Antes estaba escrito con el coseno cruzado —sin(gamma) por un lado y
+  // sin(beta)·cos(gamma) por el otro— y eso, con el teléfono parado y algo
+  // ladeado (que es como se mira una foto), daba la gravedad apuntando de
+  // costado y sin nada hacia abajo: el objeto se iba para cualquier parte.
   const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
-  SENS.gvx = Math.sin(g);
-  SENS.gvy = Math.sin(b) * Math.cos(g);
+  SENS.gvx = Math.cos(b) * Math.sin(g);
+  SENS.gvy = Math.sin(b);
   SENS.hasTilt = true;
   SENS.tilt = Math.round(Math.hypot(e.beta || 0, e.gamma || 0));
   if (S.gravFollow) wakePhysics();
