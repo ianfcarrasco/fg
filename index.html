@@ -575,6 +575,15 @@ input[type=range]::-moz-range-thumb{
     <p class="note">El centro es sin gravedad. <b>Del teléfono</b> la saca de la inclinación real: acostado no pesa, parado cuelga. La sensibilidad es cuánto pega la sacudida.</p>
   </div>
 
+  <div class="group">
+    <div class="group-head"><span>Copia de seguridad</span><span class="hint">sin la foto</span></div>
+    <div class="row">
+      <button class="btn" id="btnExportCfg">Guardar ajustes</button>
+      <label class="btn" for="fileCfg">Abrir ajustes<input type="file" id="fileCfg" accept=".gelatina,application/json" class="sr"></label>
+    </div>
+    <p class="note">Guarda lo pintado y todos los valores en un archivo <b>.gelatina</b>, chico y sin la foto adentro. Sirve para volver a un ajuste que te gustó, o para pasarlo a otra foto parecida.</p>
+  </div>
+
   <div class="group" id="grpRec">
     <div class="group-head"><span>Grabar</span></div>
     <div class="seg" id="segFormat">
@@ -1414,30 +1423,32 @@ function physicsStep(dt) {
       const n = j * GX + i;
       const wn = w[n];
       if (wn < 0.012) { ox[n] = oy[n] = vx[n] = vy[n] = 0; continue; }
-      // sólo cuentan los vecinos de la MISMA mancha
+      // Cada unión con un vecino tiene su propia fuerza, y la manda el MÁS
+      // FLOJO de los dos: una cadena aguanta lo que aguanta su eslabón más
+      // débil. Por eso dos círculos al 100% unidos por una franja al 50%
+      // casi no se arrastran entre sí, aunque técnicamente estén pegados.
       const il = isl[n];
-      let sx = 0, sy = 0, ux = 0, uy = 0, cnt = 0;
+      const soft = 1 - wn, soft2 = soft * soft, soft4 = soft2 * soft2;
+      const kn = k + kAnchor * soft4;
+      const cn = c + cAnchor * soft2;
+      let ex = 0, ey = 0, vxs = 0, vys = 0;
       const vec = (m) => {
         if (isl[m] !== il) return;
-        sx += px[m]; sy += py[m]; ux += qvx[m]; uy += qvy[m]; cnt++;
+        const wl = w[m] < wn ? w[m] : wn;
+        const link = 0.05 + 0.95 * wl * wl * wl;
+        // resorte
+        ex += ks * link * (px[m] - px[n]);
+        ey += ks * link * (py[m] - py[n]);
+        // pistón en paralelo: viscosidad interna, la que evita que parezca agua
+        vxs += cs * link * (qvx[m] - qvx[n]);
+        vys += cs * link * (qvy[m] - qvy[n]);
       };
       if (i > 0) vec(n - 1);
       if (i < GX - 1) vec(n + 1);
       if (j > 0) vec(n - GX);
       if (j < GY - 1) vec(n + GX);
-      const soft = 1 - wn, soft2 = soft * soft, soft4 = soft2 * soft2;
-      const kn = k + kAnchor * soft4;
-      const cn = c + cAnchor * soft2;
-      // El acoplamiento también baja con la fuerza pintada: un núcleo rígido
-      // no sólo tira más fuerte hacia su sitio, además se deja arrastrar
-      // menos por los vecinos blandos. Sin esto el centro se va con el borde.
-      const ksn = ks * (0.18 + 0.82 * wn);
-      // Viscosidad interna: cada resorte con su vecino lleva un pistón en
-      // paralelo. Apaga la onda que corre por la superficie sin frenar el
-      // vaivén del conjunto: por eso deja de parecer agua.
-      const csn = cs * (0.30 + 0.70 * wn);
-      let fx = -kn * px[n] + ksn * (sx - cnt * px[n]) - cn * vx[n] + csn * (ux - cnt * qvx[n]) + dx * wn * kn;
-      let fy = -kn * py[n] + ksn * (sy - cnt * py[n]) - cn * vy[n] + csn * (uy - cnt * qvy[n]) + dy * wn * kn;
+      let fx = -kn * px[n] + ex - cn * vx[n] + vxs + dx * wn * kn;
+      let fy = -kn * py[n] + ey - cn * vy[n] + vys + dy * wn * kn;
       // Un aporte por dedo. Con dos dedos, cada uno arrastra su parche y lo
       // que queda en el medio se comprime: eso es el pellizco.
       let maxgf = 0, hh = 0;
@@ -1453,8 +1464,11 @@ function physicsStep(dt) {
         // Hoyo en el centro y REBORDE alrededor: el material que baja tiene
         // que salir por algún lado. Un hoyo pelado se lee como un agujero;
         // con el borde levantado se lee como carne empujada por el dedo.
+        // El empujón sólo llega por donde hay pintura firme.
+        const rf2 = g.reach ? g.reach[n] : 1;
+        if (rf2 <= 0.004) continue;
         const ring = u2 * Math.exp(1 - u2);
-        hh -= g.press * (gf * gf - 0.40 * ring) * (g.dent / DENT);
+        hh -= g.press * (gf * gf - 0.40 * ring) * (g.dent / DENT) * rf2;
         // Objetivo = a dónde llevó el dedo + un hundido HACIA el punto tocado.
         let tgx = g.tx, tgy = g.ty;
         if (gd > 1e-3) {
@@ -1467,7 +1481,7 @@ function physicsStep(dt) {
         // Peso cuadrático en vez de lineal: adentro el toque se siente igual
         // (wn = 1), pero en el fleco del borde el dedo tira mucho menos, y el
         // contorno del objeto deja de estirarse cuando lo movés.
-        const kg = 1200 * gf * wn * wn;
+        const kg = 1200 * gf * wn * wn * rf2;
         fx += kg * (tgx - px[n]);
         fy += kg * (tgy - py[n]);
       }
@@ -1569,6 +1583,46 @@ function maskAt(u, v) {
 /** Radio del toque, en fracción del ancho: de la yema de un dedo a la mano. */
 function touchRadiusFrac() { return 0.030 + (S.p.touch / 100) * 0.26; }
 
+/**
+ * Alcance del dedo a través de la pintura. Es un camino de "máximo producto":
+ * desde el punto tocado, cada salto a un vecino multiplica por la fuerza de
+ * esa unión, y cada nodo se queda con el mejor camino que le llega. Así el
+ * empujón viaja entero por lo pintado al 100% y se apaga al cruzar una franja
+ * floja: dos círculos unidos por una banda al 50% quedan casi independientes,
+ * aunque técnicamente estén pegados.
+ */
+function computeReach(g) {
+  const r = g.reach || (g.reach = new Float32Array(GX * GY));
+  r.fill(0);
+  const w = P.w;
+  const n0 = Math.round(g.cy) * GX + Math.round(g.cx);
+  if (w[n0] < 0.012) { r.fill(1); return; }
+  r[n0] = 1;
+  const linkOf = (a, b) => {
+    const wl = w[a] < w[b] ? w[a] : w[b];
+    return 0.20 + 0.80 * wl * wl * wl;
+  };
+  const N = GX * GY;
+  for (let pass = 0; pass < 48; pass++) {
+    let cambio = false;
+    for (let dir = 0; dir < 2; dir++) {
+      for (let t = 0; t < N; t++) {
+        const n = dir ? N - 1 - t : t;
+        if (w[n] < 0.012) continue;
+        const i = n % GX, j = (n / GX) | 0;
+        let best = r[n];
+        const chk = (m) => { if (w[m] < 0.012) return; const v = r[m] * linkOf(n, m); if (v > best) best = v; };
+        if (i > 0) chk(n - 1);
+        if (i < GX - 1) chk(n + 1);
+        if (j > 0) chk(n - GX);
+        if (j < GY - 1) chk(n + GX);
+        if (best > r[n] + 1e-6) { r[n] = best; cambio = true; }
+      }
+    }
+    if (!cambio) break;
+  }
+}
+
 function grabStart(u, v, radiusFrac) {
   if (!S.maskPainted || P.grabs.length >= 3) return null;
   const rf = radiusFrac || touchRadiusFrac();
@@ -1579,6 +1633,7 @@ function grabStart(u, v, radiusFrac) {
   const gi = Math.round(clamp(u, 0, 1) * (GX - 1)), gj = Math.round(clamp(v, 0, 1) * (GY - 1));
   const g = { cx: clamp(u, 0, 1) * (GX - 1), cy: clamp(v, 0, 1) * (GY - 1), r: r, r2: r * r,
               dent: dent, dent0: dent0, tx: 0, ty: 0, press: 0, isl: P.isl[gj * GX + gi] };
+  computeReach(g);
   P.grabs.push(g);
   P.awake = true;
   return g;
@@ -1615,8 +1670,9 @@ function grabEnd(g, vx, vy) {
           const dx = i2 - g.cx, dy = j - g.cy;
           const gf = Math.exp(-(dx * dx + dy * dy) / (g.r2 * 2.2));
           if (gf < 0.02) continue;
-          P.vx[n] += sx * gf * wn;
-          P.vy[n] += sy * gf * wn;
+          const rf2 = g.reach ? g.reach[n] : 1;
+          P.vx[n] += sx * gf * wn * rf2;
+          P.vy[n] += sy * gf * wn * rf2;
         }
       }
     }
@@ -2650,26 +2706,160 @@ function showExport(res) {
   $("#preview").classList.add("on");
 }
 
-async function downloadExport() {
-  if (!lastExport) return;
-  const name = "foto-gelatina-" + Date.now() + "." + lastExport.ext;
+/* Un solo camino para bajar cualquier cosa: dentro del artefacto hay que
+   pedirle el permiso de descarga al contenedor; suelto alcanza con un <a>. */
+async function saveBlob(blob, name, okMsg) {
   let dl = null;
   try { dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { dl = null; }
   if (dl) {
-    try { await dl.save({ filename: name, data: lastExport.blob }); toast("Listo, guardado."); return; }
+    try { await dl.save({ filename: name, data: blob }); toast(okMsg || "Listo, guardado."); return true; }
     catch (err) {
       const code = err && err.code;
-      if (code === "declined") return;
-      if (code === "too_large") { toast("El archivo pasa los 16 MB. Bajá la duración y grabá de nuevo.", true); return; }
+      if (code === "declined") return false;
+      if (code === "too_large") { toast("El archivo pasa los 16 MB. Bajá la duración y grabá de nuevo.", true); return false; }
       toast("No se pudo guardar el archivo acá.", true);
-      return;
+      return false;
     }
   }
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(lastExport.blob);
-  a.download = name;
+  const url = URL.createObjectURL(blob);
+  a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
-  toast("Si no se descargó, mantené apretada la vista previa para guardarla.");
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast(okMsg || "Listo, guardado.");
+  return true;
+}
+
+async function downloadExport() {
+  if (!lastExport) return;
+  await saveBlob(lastExport.blob, "foto-gelatina-" + Date.now() + "." + lastExport.ext,
+                 "Listo, guardado.");
+}
+
+/* ==================================================================
+   Copia de seguridad de un ajuste (.gelatina)
+   Lleva lo pintado y todos los valores, NO la foto: son unos pocos KB
+   y no se puede reconstruir la imagen a partir del archivo. Sólo esta
+   app lo entiende.
+   ================================================================== */
+function b64enc(u8) {
+  let out = "";
+  const CH = 0x8000;
+  for (let i = 0; i < u8.length; i += CH) out += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  return btoa(out);
+}
+function b64dec(str) {
+  const bin = atob(str);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+/** Reescala un mapa 0..1 de un tamaño a otro, para poder llevar un ajuste
+ *  de una foto a otra aunque no tengan la misma proporción. */
+function resample(src, sw, sh, dst, dw, dh) {
+  for (let y = 0; y < dh; y++) {
+    const v = dh > 1 ? y / (dh - 1) * (sh - 1) : 0;
+    const y0 = Math.min(sh - 1, v | 0), y1 = Math.min(sh - 1, y0 + 1), fy = v - y0;
+    for (let x = 0; x < dw; x++) {
+      const u = dw > 1 ? x / (dw - 1) * (sw - 1) : 0;
+      const x0 = Math.min(sw - 1, u | 0), x1 = Math.min(sw - 1, x0 + 1), fx = u - x0;
+      const a = src[y0 * sw + x0], b = src[y0 * sw + x1];
+      const c = src[y1 * sw + x0], d = src[y1 * sw + x1];
+      dst[y * dw + x] = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+    }
+  }
+}
+
+/* Deflate cuando el navegador lo tiene (Safari 16.4+, Chrome, Firefox): un
+   ajuste pasa de ~130 KB a unos pocos. Si no está, va en crudo y listo. */
+async function deflate(u8) {
+  if (typeof CompressionStream !== "function") return null;
+  try {
+    const cs = new CompressionStream("deflate-raw");
+    const stream = new Blob([u8]).stream().pipeThrough(cs);
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch (e) { return null; }
+}
+async function inflate(u8) {
+  const ds = new DecompressionStream("deflate-raw");
+  const stream = new Blob([u8]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function exportConfig() {
+  if (!S.hasImage || !S.mask) { toast("Primero cargá una foto y pintá la zona.", true); return; }
+  let hayRigido = false;
+  for (let i = 0; i < S.rigid.length; i++) if (S.rigid[i] > 0.004) { hayRigido = true; break; }
+  const N = S.mask.length;
+  const crudo = new Uint8Array(hayRigido ? N * 2 : N);
+  crudo.set(f32ToBytes(S.mask), 0);
+  if (hayRigido) crudo.set(f32ToBytes(S.rigid), N);
+  const comp = await deflate(crudo);
+  const data = {
+    app: "foto-gelatina", v: 1,
+    fecha: new Date().toISOString(),
+    mw: S.mw, mh: S.mh, rigido: hayRigido,
+    enc: comp ? "deflate-raw" : "crudo",
+    mapas: b64enc(comp || crudo),
+    p: Object.assign({}, S.p),
+    gx: S.gx, gy: S.gy, gravFollow: S.gravFollow, dent: S.dent, preset: S.preset,
+  };
+  const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+  const stamp2 = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+  await saveBlob(blob, "ajuste-" + stamp2 + ".gelatina", "Ajuste guardado. La foto no va adentro.");
+}
+
+async function importConfig(file) {
+  if (!S.hasImage) { toast("Cargá primero la foto sobre la que querés aplicarlo.", true); return; }
+  let data;
+  try { data = JSON.parse(await file.text()); } catch (e) { data = null; }
+  if (!data || data.app !== "foto-gelatina" || !(data.mapas || data.mask)) {
+    toast("Ese archivo no es un ajuste de esta app.", true);
+    return;
+  }
+  const sw = data.mw || S.mw, sh = data.mh || S.mh;
+  let sm, sr = null;
+  try {
+    if (data.mapas) {
+      let bytes = b64dec(data.mapas);
+      if (data.enc === "deflate-raw") bytes = await inflate(bytes);
+      const N = sw * sh;
+      sm = bytes.subarray(0, N);
+      if (data.rigido && bytes.length >= N * 2) sr = bytes.subarray(N, N * 2);
+    } else {                       // formato de la primera versión
+      sm = b64dec(data.mask);
+      sr = data.rigid ? b64dec(data.rigid) : null;
+    }
+  } catch (e) {
+    toast("El ajuste está dañado y no se pudo leer.", true);
+    return;
+  }
+  pushUndo("mask");
+  const tmpM = new Float32Array(sm.length);
+  for (let i = 0; i < sm.length; i++) tmpM[i] = sm[i] / 255;
+  if (sw === S.mw && sh === S.mh) S.mask.set(tmpM);
+  else resample(tmpM, sw, sh, S.mask, S.mw, S.mh);
+  if (sr) {
+    const tmpR = new Float32Array(sr.length);
+    for (let i = 0; i < sr.length; i++) tmpR[i] = sr[i] / 255;
+    if (sw === S.mw && sh === S.mh) S.rigid.set(tmpR);
+    else resample(tmpR, sw, sh, S.rigid, S.mw, S.mh);
+  } else S.rigid.fill(0);
+
+  if (data.p) Object.assign(S.p, data.p);
+  if (typeof data.gx === "number") { S.gx = data.gx; S.gy = data.gy; }
+  S.gravFollow = !!data.gravFollow;
+  S.dent = data.dent !== false;
+  S.preset = data.preset || "jelly";
+  S.maskDirty = true;
+  syncControls();
+  refreshGravity();
+  refreshDent();
+  finishStroke();
+  physicsReset();
+  paintOverlay();
+  markDirty();
+  toast(sw === S.mw && sh === S.mh ? "Ajuste aplicado." : "Ajuste aplicado y reescalado a esta foto.");
 }
 
 /* ==================================================================
@@ -2954,6 +3144,12 @@ function bindUI() {
   $("#scrim").addEventListener("click", () => { closeSheet(); closeDrawer(); });
   $("#btnSave").addEventListener("click", saveProject);
   $("#btnDownload").addEventListener("click", downloadExport);
+  $("#btnExportCfg").addEventListener("click", exportConfig);
+  $("#fileCfg").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) importConfig(f);
+    e.target.value = "";
+  });
 
   $("#btnRec").addEventListener("click", async () => {
     if (!S.hasImage) { toast("Primero cargá una foto.", true); return; }
@@ -3012,8 +3208,9 @@ function bindUI() {
         if (it.kind === "file") { const g = it.getAsFile(); if (g) { f = g; break; } }
       }
     }
-    if (f) loadFile(f);
-    else toast("Eso no era un archivo de imagen.", true);
+    if (!f) { toast("Eso no era un archivo de imagen ni un ajuste.", true); return; }
+    if (/\.gelatina$/i.test(f.name) || f.type === "application/json") importConfig(f);
+    else loadFile(f);
   });
 
   // Pegar desde el portapapeles, que es el otro gesto natural en la compu.
