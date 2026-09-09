@@ -1,0 +1,2997 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"><meta name="theme-color" content="#0B0F16">
+<title>Foto Gelatina</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Azeret+Mono:wght@400;500;600&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+<style>
+/* ============================================================
+   Foto Gelatina — visor de fotos con profundidad y física.
+   Una sola piel oscura: cualquier fondo claro arruina la lectura
+   de la foto. Los tres acentos no son decorativos, son la leyenda
+   del mapa: ámbar = cerca, teal = lejos, magenta = zona viva.
+   ============================================================ */
+:root{
+  --ink:#0A0D14;
+  --ink-2:#111621;
+  --ink-3:#1A2130;
+  --ink-4:#232C3D;
+  --line:#26303F;
+  --line-2:#36425A;
+  --txt:#E7ECF5;
+  --txt-dim:#93A0B8;
+  --txt-faint:#5C6A83;
+  --near:#FFA24A;
+  --far:#48CFC1;
+  --jelly:#FF5E92;
+  --rigid:#9E86FF;
+  --rec:#FF4D5E;
+  --accent:var(--near);
+  --r:3px;
+  --f-display:"Bricolage Grotesque","Archivo",system-ui,sans-serif;
+  --f-body:"Archivo",system-ui,-apple-system,sans-serif;
+  --f-mono:"Azeret Mono",ui-monospace,"SF Mono",monospace;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--ink);
+  color:var(--txt);
+  font-family:var(--f-body);
+  font-size:15px;
+  line-height:1.45;
+  -webkit-text-size-adjust:100%;
+  -webkit-tap-highlight-color:transparent;
+  overscroll-behavior-y:contain;
+}
+
+h1,h2,h3{margin:0;font-family:var(--f-display);font-weight:800;letter-spacing:-.02em;text-wrap:balance}
+button,input,select{font-family:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{display:flex;flex-direction:column;min-height:100dvh}
+
+/* ---------- barra superior ---------- */
+.bar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 14px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#0E131C,#0A0D14);
+  position:sticky;top:0;z-index:30;
+}
+.mark{display:flex;align-items:center;gap:9px;min-width:0}
+.ramp{
+  width:10px;height:26px;border-radius:2px;flex:none;
+  background:linear-gradient(180deg,var(--near),#8E7A6B 45%,var(--far));
+  box-shadow:0 0 0 1px #ffffff14 inset;
+}
+.mark h1{font-size:16px;letter-spacing:-.03em;white-space:nowrap}
+.mark h1 em{font-style:normal;color:var(--txt-dim);font-weight:600}
+.bar-actions{display:flex;align-items:center;gap:8px}
+
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--f-mono);font-size:10px;font-weight:600;
+  letter-spacing:.09em;text-transform:uppercase;
+  padding:7px 10px;border-radius:var(--r);
+  border:1px solid var(--line-2);color:var(--txt-dim);
+  background:var(--ink-2);transition:border-color .15s,color .15s;
+}
+.chip:hover{color:var(--txt);border-color:#4A5872}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--txt-faint);flex:none}
+.chip.on{color:var(--far);border-color:#2E5A57;background:#0E1D1C}
+.chip.on .dot{background:var(--far);box-shadow:0 0 8px var(--far)}
+.chip.warn{color:var(--near);border-color:#4A3924;background:#1A1409}
+.chip.warn .dot{background:var(--near)}
+
+/* ---------- zona de trabajo ---------- */
+.work{flex:1;display:flex;flex-direction:column;min-height:0}
+.stage-wrap{padding:14px 14px 0;display:flex;flex-direction:column;gap:10px}
+.stage{
+  position:relative;width:100%;
+  background:repeating-conic-gradient(#12161F 0% 25%,#0D1119 0% 50%) 50%/18px 18px;
+  border:1px solid var(--line);border-radius:var(--r);
+  overflow:hidden;touch-action:none;aspect-ratio:4/5;
+  display:grid;place-items:center;
+}
+.stage.loaded{aspect-ratio:var(--ar,4/5);background:#06080C}
+/* mantener apretado sobre la foto no debe ofrecer "copiar imagen" ni seleccionar */
+.stage,.stage *,.btn,.chip,.badge,.modes button,.seg button,.presets button{
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+}
+.stage img,.stage canvas{-webkit-user-drag:none;user-drag:none}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#paint{opacity:0;transition:opacity .18s;pointer-events:none}
+.stage.previewing #paint{opacity:1}
+.stage.editing #paint{opacity:1;pointer-events:auto;cursor:crosshair}
+
+.stage-empty{
+  position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;
+  gap:14px;padding:26px;text-align:center;max-width:340px;
+}
+.stage.loaded .stage-empty{display:none}
+.drop-hint{margin:0;font-family:var(--f-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-faint)}
+
+/* al arrastrar una foto encima, el escenario se ofrece como destino */
+.stage.dropping{border-color:var(--jelly);box-shadow:inset 0 0 0 2px var(--jelly)}
+.stage.dropping::after{
+  content:"Soltá la foto";position:absolute;inset:0;z-index:8;
+  display:grid;place-items:center;background:#0A0D14c4;
+  font-family:var(--f-mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--jelly);pointer-events:none;
+}
+.stage-empty p{margin:0;color:var(--txt-dim);font-size:13.5px;line-height:1.5}
+.stage-empty .lens{
+  width:64px;height:64px;border-radius:50%;
+  background:radial-gradient(circle at 38% 34%,#2C3648 0%,#151C28 60%,#0B0F17 100%);
+  border:1px solid var(--line-2);display:grid;place-items:center;
+}
+
+.badge{
+  position:absolute;z-index:3;
+  font-family:var(--f-mono);font-size:9.5px;font-weight:500;letter-spacing:.08em;
+  text-transform:uppercase;padding:5px 8px;border-radius:2px;
+  background:#060911cc;border:1px solid var(--line);color:var(--txt-dim);
+  backdrop-filter:blur(6px);pointer-events:none;
+}
+.badge.tl{top:8px;left:8px}
+.badge.tr{top:8px;right:8px}
+.badge.rec{color:var(--rec);border-color:#5A2630;background:#1A0A0Ecc}
+.badge.rec::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--rec);margin-right:6px;vertical-align:middle;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.15}}
+.badge[hidden]{display:none}
+
+.full-exit{
+  position:absolute;top:10px;right:10px;z-index:6;
+  background:#060911cc;backdrop-filter:blur(6px);border-color:var(--line-2);
+  padding:8px 12px;font-size:12px;
+}
+.full-exit[hidden]{display:none}
+
+.zoom-badge{
+  position:absolute;bottom:10px;right:10px;z-index:6;
+  background:#060911cc;backdrop-filter:blur(6px);border-color:var(--line-2);
+  padding:7px 11px;font-size:12px;
+}
+.zoom-badge span{font-family:var(--f-mono);font-size:11px;color:var(--jelly);font-variant-numeric:tabular-nums}
+.zoom-badge[hidden]{display:none}
+
+/* Pantalla completa por CSS: en el iPhone la API de fullscreen no existe
+   para elementos que no sean video, así que el escenario se fija a la
+   ventana y el resto del chrome se esconde. */
+.app.immersive .bar,
+.app.immersive .tray,
+.app.immersive .stage-toggle,
+.app.immersive .stage-foot{display:none}
+.app.immersive .work{padding:0}
+.app.immersive .stage-wrap{
+  position:fixed;inset:0;z-index:80;padding:0;gap:0;
+  background:#000;display:grid;place-items:center;
+}
+.app.immersive .stage,
+.app.immersive .stage.loaded{
+  aspect-ratio:auto;border:none;border-radius:0;max-width:100vw;max-height:100dvh;
+}
+
+/* el control principal va pegado a la foto: pincel o probar */
+.stage-toggle{display:flex;gap:8px}
+.stage-toggle.m-depth{--accent:var(--near)}
+.stage-toggle.m-jelly{--accent:var(--jelly)}
+.stage-toggle[hidden]{display:none}
+.stage-toggle .seg{flex:1}
+.seg.big button{padding:12px 8px;font-size:14px}
+.btn.undo{flex:none;padding:12px 14px}
+.btn.undo[hidden]{display:none}
+.seg.big button[aria-pressed="true"]{background:var(--ink-4);color:var(--txt);box-shadow:inset 0 -2px 0 var(--accent)}
+
+/* en el teléfono los cuatro botones entran prolijos en dos filas */
+.stage-foot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stage-foot .spacer{display:none}
+
+/* ---------- botones ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  padding:10px 12px;border-radius:var(--r);
+  border:1px solid var(--line-2);background:var(--ink-2);
+  font-size:13px;font-weight:600;letter-spacing:-.01em;color:var(--txt);
+  transition:background .15s,border-color .15s,color .15s,transform .08s;
+}
+.btn:hover{background:var(--ink-3);border-color:#46536D}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#0A0D14}
+.btn.primary:hover{filter:brightness(1.08);background:var(--accent)}
+.btn.ghost{background:transparent}
+.btn.wide{width:100%}
+.btn[disabled]{opacity:.4;pointer-events:none}
+.btn[aria-pressed="false"]{color:var(--txt-faint)}
+.btn .led{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+
+/* ---------- bandeja de controles ---------- */
+.tray{margin-top:14px;padding:0 14px 34px;display:flex;flex-direction:column;gap:14px}
+.modes{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:3px;
+  padding:3px;background:var(--ink-2);border:1px solid var(--line);border-radius:var(--r);
+}
+.modes button{
+  padding:9px 4px;border-radius:2px;
+  font-family:var(--f-mono);font-size:10px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--txt-faint);
+  transition:color .15s,background .15s;
+}
+.modes button[aria-selected="true"]{background:var(--ink-4);color:var(--txt)}
+.modes button[data-m="jelly"][aria-selected="true"]{box-shadow:inset 0 -2px 0 var(--jelly)}
+.modes button[data-m="rec"][aria-selected="true"]{box-shadow:inset 0 -2px 0 var(--rec)}
+
+.panel{display:none;flex-direction:column;gap:16px}
+.panel.on{display:flex}
+.panel[data-m="depth"]{--accent:var(--near)}
+.panel[data-m="jelly"]{--accent:var(--jelly)}
+.panel[data-m="rec"]{--accent:var(--rec)}
+
+.lede{margin:0;color:var(--txt-dim);font-size:13px;line-height:1.5;max-width:62ch}
+.lede b{color:var(--txt);font-weight:600}
+
+.group{display:flex;flex-direction:column;gap:11px}
+.group[hidden]{display:none}
+.group-head{
+  display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  font-family:var(--f-mono);font-size:9.5px;font-weight:600;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--txt-faint);
+  padding-bottom:7px;border-bottom:1px solid var(--line);
+}
+.group-head .hint{letter-spacing:0;text-transform:none;font-family:var(--f-body);font-size:11.5px;font-weight:400}
+
+.ctl{display:flex;flex-direction:column;gap:6px}
+.ctl-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.ctl-top label{font-size:13px;font-weight:500}
+.ctl-top output{font-family:var(--f-mono);font-size:11px;font-weight:500;color:var(--txt-dim);font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:22px;background:transparent;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:3px;background:var(--ink-4);border-radius:2px}
+input[type=range]::-moz-range-track{height:3px;background:var(--ink-4);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:17px;height:17px;border-radius:50%;
+  background:var(--accent);margin-top:-7px;border:3px solid var(--ink);box-shadow:0 0 0 1px var(--accent);
+}
+input[type=range]::-moz-range-thumb{
+  width:11px;height:11px;border-radius:50%;background:var(--accent);
+  border:3px solid var(--ink);box-shadow:0 0 0 1px var(--accent);
+}
+
+.seg{display:flex;gap:3px;padding:3px;background:var(--ink-2);border:1px solid var(--line);border-radius:var(--r)}
+.seg button{
+  flex:1;padding:8px 6px;border-radius:2px;font-size:12px;font-weight:600;color:var(--txt-faint);
+  display:flex;align-items:center;justify-content:center;gap:6px;transition:color .15s,background .15s;
+}
+.seg button[aria-pressed="true"]{background:var(--ink-4);color:var(--txt)}
+.seg .swatch{width:9px;height:9px;border-radius:2px;background:currentColor;flex:none}
+.seg button[data-v="near"][aria-pressed="true"]{color:var(--near)}
+.seg button[data-v="far"][aria-pressed="true"]{color:var(--far)}
+.seg button[data-v="add"][aria-pressed="true"]{color:var(--jelly)}
+.seg button[data-v="rigid"][aria-pressed="true"]{color:var(--rigid)}
+
+.presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.presets button{
+  padding:10px 4px;border-radius:var(--r);border:1px solid var(--line);
+  background:var(--ink-2);display:flex;flex-direction:column;align-items:center;gap:5px;
+  font-family:var(--f-mono);font-size:9px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--txt-faint);transition:all .15s;
+}
+.presets button[aria-pressed="true"]{border-color:var(--jelly);color:var(--jelly);background:#1A0C13}
+.presets svg{width:22px;height:14px;overflow:visible}
+
+/* rosa de gravedad: el centro es "sin gravedad", o sea visto desde arriba */
+.gravrow{display:flex;gap:12px;align-items:flex-start}
+.gravrow .grow{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}
+.gravpad{display:grid;grid-template-columns:repeat(3,34px);gap:4px;flex:none}
+.gravpad button{
+  height:34px;border:1px solid var(--line);background:var(--ink-2);border-radius:2px;
+  display:grid;place-items:center;color:var(--txt-faint);font-size:15px;line-height:1;
+  transition:color .15s,border-color .15s,background .15s;
+}
+.gravpad button:hover{color:var(--txt)}
+.gravpad button[aria-pressed="true"]{border-color:var(--jelly);color:var(--jelly);background:#1A0C13}
+.gravpad.off{opacity:.35;pointer-events:none}
+
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row > *{flex:1;min-width:120px}
+
+.note{font-size:12px;line-height:1.5;color:var(--txt-faint);border-left:2px solid var(--line-2);padding-left:10px}
+.note b{color:var(--txt-dim);font-weight:600}
+.note.alert{border-left-color:var(--near);color:var(--txt-dim)}
+.note.alert b{color:var(--near)}
+.note[hidden]{display:none}
+.note p{margin:0 0 9px}
+.note .btn{width:100%}
+.note .linkbox{display:flex;gap:6px;margin-top:8px}
+.note .linkbox input{
+  flex:1;min-width:0;padding:9px 10px;border-radius:var(--r);
+  border:1px solid var(--line-2);background:#060911;color:var(--txt-dim);
+  font-family:var(--f-mono);font-size:11px;
+}
+.note .linkbox .btn{width:auto;flex:none}
+.note .fine{margin:9px 0 0;font-size:11.5px;color:var(--txt-faint)}
+.note.live{font-family:var(--f-mono);font-size:11px;letter-spacing:.02em;color:var(--far);border-left-color:#2E5A57;font-variant-numeric:tabular-nums}
+
+.preview{display:none;flex-direction:column;gap:10px}
+.preview.on{display:flex}
+.preview video,.preview img{width:100%;border-radius:var(--r);border:1px solid var(--line);background:#000;display:block}
+.progress{height:3px;background:var(--ink-3);border-radius:2px;overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .12s linear}
+
+.sheet{
+  position:fixed;inset:auto 0 0 0;z-index:50;background:var(--ink-2);
+  border-top:1px solid var(--line-2);border-radius:10px 10px 0 0;padding:16px 14px 26px;
+  transform:translateY(101%);transition:transform .26s cubic-bezier(.3,.8,.3,1);
+  max-height:74dvh;overflow:auto;box-shadow:0 -24px 60px #00000080;
+}
+.sheet.on{transform:translateY(0)}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.sheet-head h2{font-size:15px}
+.saved{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.saved figure{margin:0;position:relative;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--ink-3);cursor:pointer}
+.saved img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.saved figcaption{font-family:var(--f-mono);font-size:9px;letter-spacing:.05em;color:var(--txt-faint);padding:5px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.saved .del{
+  position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:2px;
+  background:#060911cc;border:1px solid var(--line);color:var(--txt-dim);
+  display:grid;place-items:center;font-size:13px;line-height:1;
+}
+.saved .del:hover{color:var(--rec);border-color:#5A2630}
+.empty-note{color:var(--txt-faint);font-size:13px;margin:0}
+.scrim{position:fixed;inset:0;background:#04060Ab8;z-index:45;opacity:0;pointer-events:none;transition:opacity .22s}
+.scrim.on{opacity:1;pointer-events:auto}
+
+.toast{
+  position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);
+  z-index:60;padding:10px 15px;border-radius:var(--r);
+  background:var(--ink-4);border:1px solid var(--line-2);
+  font-size:13px;font-weight:500;box-shadow:0 12px 34px #00000070;
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;
+  max-width:min(90vw,420px);text-align:center;
+}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.toast.bad{border-color:#5A2630;color:#FFC2C8}
+
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+@media (min-width:900px){
+  .work{flex-direction:row;gap:0;align-items:flex-start;padding:0}
+  .stage-wrap{flex:1;padding:20px;position:sticky;top:53px;align-items:center}
+  .stage{width:auto;max-width:100%;margin:0 auto}
+  .stage.loaded{height:calc(100dvh - 175px);width:auto}
+  .stage-foot{display:flex;align-items:center;width:auto;max-width:100%}
+  .stage-foot .spacer{display:block;flex:0 0 18px}
+  .tray{width:392px;flex:none;margin-top:0;padding:20px 20px 40px;border-left:1px solid var(--line);min-height:calc(100dvh - 53px)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms !important;animation-duration:.01ms !important}
+}
+</style>
+<div class="app">
+  <header class="bar">
+    <div class="mark">
+      <span class="ramp" aria-hidden="true"></span>
+      <h1>Foto <em>Gelatina</em></h1>
+    </div>
+    <div class="bar-actions">
+      <button class="chip" id="btnSensors"><span class="dot"></span><span id="sensorLabel">Activar sensores</span></button>
+      <button class="chip" id="btnLibrary">Guardados</button>
+    </div>
+  </header>
+
+  <main class="work">
+    <section class="stage-wrap">
+      <div class="stage" id="stage">
+        <canvas id="gl"></canvas>
+        <canvas id="paint"></canvas>
+        <span class="badge tl" id="badgeMode" hidden>Pincel</span>
+        <span class="badge tr rec" id="badgeRec" hidden>Grabando</span>
+        <button class="btn full-exit" id="btnExitFull" hidden>Salir</button>
+        <button class="btn zoom-badge" id="zoomBadge" hidden><span>1,0×  </span>Ver todo</button>
+        <div class="stage-empty" id="empty">
+          <span class="lens" aria-hidden="true">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#93A0B8" stroke-width="1.4">
+              <circle cx="12" cy="12" r="7"></circle><circle cx="12" cy="12" r="2.4"></circle>
+            </svg>
+          </span>
+          <p>Arrastrá una foto acá o elegila. Después pintás con el pincel la zona que se mueve.</p>
+          <label class="btn primary" for="file">Elegir una foto<input type="file" id="file" accept="image/*" class="sr"></label>
+          <p class="drop-hint">Soltá la foto acá</p>
+        </div>
+      </div>
+
+      <div class="stage-toggle m-jelly" id="stageToggle">
+        <div class="seg big" id="segEdit" role="group" aria-label="Pincel o prueba">
+          <button data-v="brush" aria-pressed="false">Pincel</button>
+          <button data-v="play" aria-pressed="true">Probar</button>
+        </div>
+        <button class="btn undo" id="btnUndo" hidden disabled title="Deshacer el último trazo (Ctrl+Z)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>
+          </svg>
+          Atrás
+        </button>
+      </div>
+
+      <div class="stage-foot">
+        <label class="btn" for="file2">Cambiar foto<input type="file" id="file2" accept="image/*" class="sr"></label>
+        <button class="btn" id="btnFull" title="Ver la foto sola, a pantalla completa">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/>
+          </svg>
+          Pantalla
+        </button>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="btnSave">Guardar</button>
+      </div>
+    </section>
+
+    <section class="tray">
+      <nav class="modes two" role="tablist" aria-label="Modo de trabajo">
+        <button role="tab" data-m="jelly" aria-selected="true">Gelatina</button>
+        <button role="tab" data-m="rec" aria-selected="false">Grabar</button>
+      </nav>
+
+      <div class="note alert" id="framedNote" hidden>
+        <p><b>El iPhone no da los sensores acá adentro.</b> Apple sólo se los entrega a una pestaña propia de Safari, nunca a una página incrustada como ésta. No es algo que se pueda arreglar desde el código.</p>
+        <button class="btn" id="btnOwnTab">Intentar abrir en pestaña propia</button>
+        <div class="linkbox">
+          <input id="ownUrl" readonly aria-label="Dirección de esta página">
+          <button class="btn" id="btnCopyUrl">Copiar</button>
+        </div>
+        <p class="fine">Si el botón no hace nada, copiá esa dirección y pegala en Safari. Y si tampoco, usá el archivo suelto: ahí los sensores andan seguro.</p>
+        <p class="fine"><b>Mientras tanto</b>, un manotazo con el dedo sobre la foto hace lo mismo que sacudir el teléfono: arrastrá rápido y soltá.</p>
+      </div>
+      <p class="note live" id="sensorLive" hidden></p>
+
+      <!-- ============ GELATINA ============ -->
+      <div class="panel on" data-m="jelly" role="tabpanel">
+        <p class="lede">Pintá la zona en <b>Pincel</b>. En <b>Probar</b>: un dedo hunde, dos pellizcan, y si agarrás y arrastrás se queda estirada hasta que soltás. Dos manchas separadas se mueven cada una por su cuenta.</p>
+
+        <div class="group" id="grpAuto" hidden>
+          <div class="group-head"><span>Detección</span><span class="hint">movela para buscar el objeto</span></div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sAuto">Cobertura</label><output id="oAuto">0</output></div>
+            <input type="range" id="sAuto" min="0" max="100" value="0">
+          </div>
+          <div class="row">
+            <button class="btn" id="btnAuto">Detectar de nuevo</button>
+            <button class="btn ghost" id="btnViewAuto" aria-pressed="false">Ver zona</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-head"><span>Zona viva</span><span class="hint" id="maskStat">sin pintar</span></div>
+          <div class="seg" id="segJelly">
+            <button data-v="add" aria-pressed="true"><span class="swatch"></span>Mover</button>
+            <button data-v="rigid" aria-pressed="false"><span class="swatch"></span>Rígido</button>
+            <button data-v="erase" aria-pressed="false">Borrar</button>
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sBrushJ">Tamaño</label><output id="oBrushJ">20</output></div>
+            <input type="range" id="sBrushJ" min="1" max="100" value="20">
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sFlow" id="flowLabel">Movimiento del pincel</label><output id="oFlow">100%</output></div>
+            <input type="range" id="sFlow" min="0" max="100" value="100">
+          </div>
+          <p class="note"><b>Mover</b> marca lo que tiembla. <b>Rígido</b> viaja con el temblor pero no se deforma, como una frutilla sobre el postre.</p>
+          <div class="row">
+            <button class="btn" id="btnClearMask">Limpiar</button>
+            <button class="btn" id="btnAllMask">Toda la foto</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-head"><span>Física</span></div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sStiff">Rigidez</label><output id="oStiff">31</output></div>
+            <input type="range" id="sStiff" min="0" max="100" value="31">
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sBounce">Rebote</label><output id="oBounce">65</output></div>
+            <input type="range" id="sBounce" min="0" max="100" value="65">
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sAmp">Amplitud</label><output id="oAmp">11</output></div>
+            <input type="range" id="sAmp" min="0" max="100" value="11">
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sSens">Sensibilidad al movimiento</label><output id="oSens">55</output></div>
+            <input type="range" id="sSens" min="0" max="100" value="55">
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sTouch">Tamaño del toque</label><output id="oTouch">pulgar</output></div>
+            <input type="range" id="sTouch" min="0" max="100" value="45">
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sShade">Sombra del hundido</label><output id="oShade">0</output></div>
+            <input type="range" id="sShade" min="0" max="100" value="0">
+          </div>
+          <p class="note">De la yema de un dedo a la mano entera. La sombra, si la subís, le da volumen al hoyo.</p>
+        </div>
+
+        <div class="group">
+          <div class="group-head"><span>Gravedad</span><span class="hint" id="gravStat">cuelga hacia abajo</span></div>
+          <div class="gravrow">
+            <div class="gravpad" id="gravPad" role="group" aria-label="Dirección de la gravedad">
+              <button data-g="-1,-1" aria-pressed="false" aria-label="Arriba a la izquierda">↖</button>
+              <button data-g="0,-1" aria-pressed="false" aria-label="Arriba">↑</button>
+              <button data-g="1,-1" aria-pressed="false" aria-label="Arriba a la derecha">↗</button>
+              <button data-g="-1,0" aria-pressed="false" aria-label="Izquierda">←</button>
+              <button data-g="0,0" aria-pressed="false" aria-label="Sin gravedad">○</button>
+              <button data-g="1,0" aria-pressed="false" aria-label="Derecha">→</button>
+              <button data-g="-1,1" aria-pressed="false" aria-label="Abajo a la izquierda">↙</button>
+              <button data-g="0,1" aria-pressed="true" aria-label="Abajo">↓</button>
+              <button data-g="1,1" aria-pressed="false" aria-label="Abajo a la derecha">↘</button>
+            </div>
+            <div class="grow">
+              <div class="ctl">
+                <div class="ctl-top"><label for="sGrav">Peso</label><output id="oGrav">35</output></div>
+                <input type="range" id="sGrav" min="0" max="100" value="35">
+              </div>
+              <button class="btn" id="btnGravFollow" aria-pressed="false">Del teléfono</button>
+            </div>
+          </div>
+          <p class="note">El centro es sin gravedad. <b>Del teléfono</b> la saca de la inclinación real: acostado no pesa, parado cuelga.</p>
+        </div>
+
+        <button class="btn primary wide" id="btnShake">Sacudir sin mover el teléfono</button>
+      </div>
+
+      <!-- ============ GRABAR ============ -->
+      <div class="panel" data-m="rec" role="tabpanel">
+        <p class="lede">La app sacude la zona sola, o grabás lo que hagas con el teléfono.</p>
+
+        <div class="group">
+          <div class="group-head"><span>Formato</span></div>
+          <div class="seg" id="segFormat">
+            <button data-v="video" aria-pressed="true">Video</button>
+            <button data-v="gif" aria-pressed="false">GIF</button>
+          </div>
+          <div class="seg" id="segMotion">
+            <button data-v="jelly" aria-pressed="true">Sacudida automática</button>
+            <button data-v="live" aria-pressed="false">Sensores</button>
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sDur">Duración</label><output id="oDur">4,0 s</output></div>
+            <input type="range" id="sDur" min="15" max="80" value="40">
+          </div>
+        </div>
+
+        <button class="btn primary wide" id="btnRec">Grabar</button>
+        <div class="progress" id="recProgress" hidden><i></i></div>
+
+        <div class="preview" id="preview">
+          <div class="group-head"><span>Resultado</span><span class="hint" id="recStat"></span></div>
+          <div id="previewSlot"></div>
+          <button class="btn wide" id="btnDownload">Guardar en el teléfono</button>
+        </div>
+
+        <p class="note">En el iPhone se guarda por la hoja de compartir.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <div class="sheet-head">
+    <h2>Proyectos guardados</h2>
+    <button class="btn ghost" id="btnCloseSheet">Cerrar</button>
+  </div>
+  <div class="saved" id="savedGrid"></div>
+  <p class="empty-note" id="savedEmpty">Todavía no guardaste nada. Los proyectos quedan en este teléfono, en este navegador: la foto nunca sale de acá.</p>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+/* ================================================================
+   Foto Gelatina
+   1. estima un mapa de profundidad clásico (foco + neblina + altura)
+      y lo pega a los bordes con un filtro guiado
+   2. lo mueve con el giroscopio (parallax por trazado iterativo)
+   3. simula una malla masa-resorte dentro de la zona pintada,
+      empujada por el acelerómetro
+   ================================================================ */
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+const TEXMAX = 1600;    // lado máximo de la textura de la foto
+const DWMAX = 384;      // resolución de trabajo del mapa de profundidad
+const MWMAX = 256;      // resolución de la máscara
+// 48×48: con 32 un toque chico no tenía dónde apoyarse y terminaba
+// empujando medio objeto. El acoplamiento se reescala más abajo para que
+// el material siga sintiéndose igual.
+const GX = 48, GY = 48;
+const ZOOM = 1.08;      // recorte fijo que oculta el estirado de los bordes
+const STORE = 0.10;     // desplazamiento máximo almacenable, en unidades uv
+
+// ¿estamos incrustados? iOS no entrega los sensores dentro de un marco.
+let FRAMED = false;
+try { FRAMED = window.self !== window.top; } catch (e) { FRAMED = true; }
+
+const S = {
+  hasImage: false,
+  imgCanvas: null,
+  iw: 0, ih: 0,
+  dw: 0, dh: 0,
+  gray: null,       // guía para el filtro guiado
+  depth: null,      // relieve estimado: sólo alimenta la detección de zona
+  mw: 0, mh: 0,
+  mask: null,       // zona viva pintada
+  maskSoft: null,   // versión con borde difuminado (la que usa el motor)
+  auto: null,       // "cuánto parece objeto" cada píxel, ya pegado a los bordes
+  rigid: null,      // zonas que viajan con la gelatina sin deformarse
+  rigidSoft: null,
+  maskPainted: false,
+  maskDirty: true,
+  depthDirty: false,
+  mode: "jelly",
+  editing: false,
+  brushJ: "add",
+  preset: "jelly",
+  gx: 0, gy: 1,          // gravedad hacia abajo: una masa blanda pesa
+  gravFollow: false,
+  format: "video",
+  recMotion: "jelly",
+  recording: false,
+  immersive: false,
+  previewMask: false,
+  view: { scale: 1, px: 0, py: 0 },   // zoom y encuadre mientras se pinta
+  viewAuto: false,
+  sensors: "off",   // off | on | denied | nodata | unsupported
+  p: { stiff: 31, bounce: 65, amp: 11, sens: 55, dur: 40, flow: 100, rflow: 100, eflow: 0, grav: 35, auto: 0, touch: 45, shade: 0 },
+};
+
+/* Sólo se redibuja cuando algo cambió: en reposo el bucle no toca la GPU. */
+let dirty = true;
+function markDirty() { dirty = true; }
+
+/* ---------------------------------------------------------------- avisos */
+let toastTimer = null;
+function toast(msg, bad) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.toggle("bad", !!bad);
+  el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 4200);
+}
+
+/* ---------------------------------------------------- filtros numéricos */
+function boxBlur1D(src, dst, w, h, r, horizontal) {
+  const n = horizontal ? w : h;
+  const m = horizontal ? h : w;
+  const norm = 1 / (2 * r + 1);
+  for (let j = 0; j < m; j++) {
+    const base = horizontal ? j * w : j;
+    const step = horizontal ? 1 : w;
+    const last = n - 1;
+    const at = (i) => src[base + (i < 0 ? 0 : i > last ? last : i) * step];
+    let sum = 0;
+    for (let k = -r; k <= r; k++) sum += at(k);
+    for (let i = 0; i < n; i++) {
+      dst[base + i * step] = sum * norm;
+      sum += at(i + r + 1) - at(i - r);
+    }
+  }
+}
+function boxBlur(src, dst, w, h, r, tmp) {
+  if (r < 1) { dst.set(src); return; }
+  const t = tmp || new Float32Array(w * h);
+  boxBlur1D(src, t, w, h, r, true);
+  boxBlur1D(t, dst, w, h, r, false);
+}
+
+/** Normaliza a 0..1 recortando colas por percentil (robusto a brillos raros). */
+function normalize(arr, loP, hiP) {
+  const n = arr.length;
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < n; i++) { const v = arr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+  if (mx - mn < 1e-6) { arr.fill(0.5); return; }
+  const BINS = 512, hist = new Uint32Array(BINS), sc = (BINS - 1) / (mx - mn);
+  for (let i = 0; i < n; i++) hist[(arr[i] - mn) * sc | 0]++;
+  const loT = n * loP, hiT = n * hiP;
+  let acc = 0, lo = mn, hi = mx;
+  for (let b = 0; b < BINS; b++) { acc += hist[b]; if (acc >= loT) { lo = mn + b / sc; break; } }
+  acc = 0;
+  for (let b = BINS - 1; b >= 0; b--) { acc += hist[b]; if (acc >= n - hiT) { hi = mn + b / sc; break; } }
+  if (hi - lo < 1e-6) hi = lo + 1e-6;
+  const inv = 1 / (hi - lo);
+  for (let i = 0; i < n; i++) arr[i] = clamp((arr[i] - lo) * inv, 0, 1);
+}
+
+/**
+ * Filtro guiado (He et al.): suaviza `p` respetando los bordes de `I`.
+ * Es lo que evita que la profundidad se derrame fuera del objeto.
+ */
+function guided(I, p, w, h, r, eps, out) {
+  const N = w * h;
+  const tmp = new Float32Array(N);
+  const II = new Float32Array(N), IP = new Float32Array(N);
+  for (let i = 0; i < N; i++) { II[i] = I[i] * I[i]; IP[i] = I[i] * p[i]; }
+  const mI = new Float32Array(N), mP = new Float32Array(N), mII = new Float32Array(N), mIP = new Float32Array(N);
+  boxBlur(I, mI, w, h, r, tmp); boxBlur(p, mP, w, h, r, tmp);
+  boxBlur(II, mII, w, h, r, tmp); boxBlur(IP, mIP, w, h, r, tmp);
+  const a = II, b = IP; // reciclamos los buffers grandes
+  for (let i = 0; i < N; i++) {
+    const varI = mII[i] - mI[i] * mI[i];
+    const cov = mIP[i] - mI[i] * mP[i];
+    a[i] = cov / (varI + eps);
+    b[i] = mP[i] - a[i] * mI[i];
+  }
+  boxBlur(a, mII, w, h, r, tmp); boxBlur(b, mIP, w, h, r, tmp);
+  for (let i = 0; i < N; i++) out[i] = mII[i] * I[i] + mIP[i];
+}
+
+/* --------------------------------------------- estimación de profundidad */
+function estimateDepth(px, w, h) {
+  const N = w * h;
+  const gray = new Float32Array(N), haze = new Float32Array(N);
+  for (let i = 0, j = 0; i < N; i++, j += 4) {
+    const r = px[j] / 255, g = px[j + 1] / 255, b = px[j + 2] / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    const sat = mx > 0.001 ? (mx - mn) / mx : 0;
+    haze[i] = mx * (1 - sat); // lo lejano se ve lavado: mucha luz, poca saturación
+  }
+
+  const tmp = new Float32Array(N);
+  const lap = new Float32Array(N);
+  for (let y = 0; y < h; y++) {
+    const yu = y > 0 ? y - 1 : 0, yd = y < h - 1 ? y + 1 : h - 1;
+    for (let x = 0; x < w; x++) {
+      const xl = x > 0 ? x - 1 : 0, xr = x < w - 1 ? x + 1 : w - 1;
+      const i = y * w + x;
+      lap[i] = Math.abs(4 * gray[i] - gray[y * w + xl] - gray[y * w + xr] - gray[yu * w + x] - gray[yd * w + x]);
+    }
+  }
+  const focus = new Float32Array(N);
+  boxBlur(lap, focus, w, h, Math.max(3, Math.round(w / 42)), tmp);
+  for (let i = 0; i < N; i++) focus[i] = Math.sqrt(focus[i]);
+  normalize(focus, 0.03, 0.97);
+
+  const hz = new Float32Array(N);
+  boxBlur(haze, hz, w, h, Math.max(2, Math.round(w / 90)), tmp);
+  normalize(hz, 0.02, 0.98);
+
+  const d = new Float32Array(N);
+  for (let y = 0; y < h; y++) {
+    const vy = h > 1 ? y / (h - 1) : 0.5;
+    const cy = (y / Math.max(1, h - 1)) - 0.5;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const cx = (x / Math.max(1, w - 1)) - 0.5;
+      const centre = 1 - Math.min(1, Math.sqrt(cx * cx + cy * cy) * 1.9);
+      d[i] = 0.46 * focus[i] + 0.26 * (1 - hz[i]) + 0.17 * vy + 0.11 * centre;
+    }
+  }
+  normalize(d, 0.02, 0.98);
+
+  const out = new Float32Array(N);
+  guided(gray, d, w, h, Math.max(4, Math.round(w / 26)), 0.006, out);
+  guided(gray, out, w, h, Math.max(3, Math.round(w / 52)), 0.0015, d);
+  normalize(d, 0.01, 0.99);
+  return { depth: d, gray };
+}
+
+/**
+ * Campo de "objeto". En vez de comparar contra el color medio del marco —que
+ * falla apenas el fondo tiene dos tonos— arma dos histogramas de color: uno
+ * del borde de la foto (fondo) y otro del centro (sujeto), y puntúa cada
+ * píxel por la razón de verosimilitud entre ambos. Se le suma el foco, que
+ * separa bien al sujeto del fondo desenfocado, y se pega a los bordes con el
+ * filtro guiado.
+ */
+function computeAutoField() {
+  const w = S.mw, h = S.mh, N = w * h;
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const cx2 = c.getContext("2d");
+  cx2.drawImage(S.imgCanvas, 0, 0, w, h);
+  const px = cx2.getImageData(0, 0, w, h).data;
+
+  const B = 16, BB = B * B * B;
+  const hb = new Float32Array(BB), hf = new Float32Array(BB);
+  let nb = 0, nf = 0;
+  const bin = (o) => ((px[o] * B) >> 8) * B * B + ((px[o + 1] * B) >> 8) * B + ((px[o + 2] * B) >> 8);
+  const band = Math.max(2, Math.round(Math.min(w, h) * 0.12));
+  const rx = w * 0.40, ry = h * 0.40, mx = w * 0.5, my = h * 0.5;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      const borde = x < band || x >= w - band || y < band || y >= h - band;
+      if (borde) { hb[bin(o)]++; nb++; continue; }
+      const ex = (x - mx) / rx, ey = (y - my) / ry;
+      if (ex * ex + ey * ey < 1) { hf[bin(o)]++; nf++; }
+    }
+  }
+  const eps = 1 / Math.max(1, Math.min(nb, nf));
+  const gray = new Float32Array(N), col = new Float32Array(N);
+  for (let i = 0, o = 0; i < N; i++, o += 4) {
+    gray[i] = (0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2]) / 255;
+    const k = bin(o);
+    col[i] = Math.log((hf[k] / Math.max(1, nf) + eps) / (hb[k] / Math.max(1, nb) + eps));
+  }
+  normalize(col, 0.03, 0.97);
+
+  // foco: lo nítido suele ser el sujeto
+  const tmp = new Float32Array(N), lap = new Float32Array(N);
+  for (let y = 0; y < h; y++) {
+    const yu = y > 0 ? y - 1 : 0, yd = y < h - 1 ? y + 1 : h - 1;
+    for (let x = 0; x < w; x++) {
+      const xl = x > 0 ? x - 1 : 0, xr = x < w - 1 ? x + 1 : w - 1;
+      const i = y * w + x;
+      lap[i] = Math.abs(4 * gray[i] - gray[y * w + xl] - gray[y * w + xr] - gray[yu * w + x] - gray[yd * w + x]);
+    }
+  }
+  const foco = new Float32Array(N);
+  boxBlur(lap, foco, w, h, Math.max(3, Math.round(w / 26)), tmp);
+  for (let i = 0; i < N; i++) foco[i] = Math.sqrt(foco[i]);
+  normalize(foco, 0.04, 0.96);
+
+  const field = new Float32Array(N);
+  for (let y = 0; y < h; y++) {
+    const ey = (y / Math.max(1, h - 1) - 0.5);
+    for (let x = 0; x < w; x++) {
+      const ex = (x / Math.max(1, w - 1) - 0.5);
+      const centro = 1 - Math.min(1, Math.hypot(ex, ey) * 1.7);
+      const i = y * w + x;
+      field[i] = 0.52 * col[i] + 0.30 * foco[i] + 0.18 * centro;
+    }
+  }
+  normalize(field, 0.02, 0.98);
+  const out = new Float32Array(N);
+  guided(gray, field, w, h, Math.max(3, Math.round(w / 20)), 0.003, out);
+  normalize(out, 0.02, 0.98);
+  S.auto = out;
+}
+
+/**
+ * Umbral + limpieza: se cierran los agujeros, se tiran las manchas sueltas
+ * del fondo y sólo quedan las piezas grandes. Sin esto la zona salía llena
+ * de islas y de recortes en el medio del objeto.
+ */
+const AUX = { bin: null, lab: null, cola: null };
+function applyAutoMask(cov) {
+  if (!S.auto || !S.mask) return;
+  const w = S.mw, h = S.mh, N = w * h;
+  if (!AUX.bin || AUX.bin.length !== N) {
+    AUX.bin = new Float32Array(N); AUX.lab = new Int32Array(N); AUX.cola = new Int32Array(N);
+  }
+  const t = 1 - clamp(cov, 0, 100) / 100;
+  const lo = t - 0.07, hi = t + 0.07;
+  const suave = AUX.bin;
+  for (let i = 0; i < N; i++) {
+    const v = clamp((S.auto[i] - lo) / (hi - lo), 0, 1);
+    suave[i] = v * v * (3 - 2 * v);
+  }
+  // cierre morfológico: rellena huecos y borra motas
+  const bl = new Float32Array(N);
+  boxBlur(suave, bl, w, h, Math.max(1, Math.round(w / 55)));
+
+  const lab = AUX.lab, cola = AUX.cola;
+  lab.fill(0);
+  let comps = 0;
+  const areas = [0];
+  for (let i0 = 0; i0 < N; i0++) {
+    if (lab[i0] || bl[i0] < 0.45) continue;
+    comps++;
+    let head = 0, tail = 0, area = 0;
+    cola[tail++] = i0; lab[i0] = comps;
+    while (head < tail) {
+      const n = cola[head++]; area++;
+      const x = n % w, y = (n / w) | 0;
+      if (x > 0 && !lab[n - 1] && bl[n - 1] >= 0.45) { lab[n - 1] = comps; cola[tail++] = n - 1; }
+      if (x < w - 1 && !lab[n + 1] && bl[n + 1] >= 0.45) { lab[n + 1] = comps; cola[tail++] = n + 1; }
+      if (y > 0 && !lab[n - w] && bl[n - w] >= 0.45) { lab[n - w] = comps; cola[tail++] = n - w; }
+      if (y < h - 1 && !lab[n + w] && bl[n + w] >= 0.45) { lab[n + w] = comps; cola[tail++] = n + w; }
+    }
+    areas.push(area);
+  }
+  let mayor = 0;
+  for (let ci = 1; ci <= comps; ci++) mayor = Math.max(mayor, areas[ci]);
+  const corte = Math.max(N * 0.004, mayor * 0.22); // piezas chicas: afuera
+  const vive = new Uint8Array(comps + 1);
+  for (let ci = 1; ci <= comps; ci++) vive[ci] = areas[ci] >= corte ? 1 : 0;
+
+  for (let i = 0; i < N; i++) {
+    const dentro = lab[i] && vive[lab[i]];
+    // el borde suave del umbral se conserva; sólo se recorta lo que quedó fuera
+    S.mask[i] = dentro ? Math.max(suave[i], Math.min(1, bl[i] * 1.15)) : 0;
+  }
+  S.maskDirty = true;
+  finishStroke();
+  paintOverlay();
+  markDirty();
+}
+
+/* ------------------------------------------------------ carga de la foto */
+function fitCanvas(src, maxDim) {
+  const w0 = src.naturalWidth || src.width, h0 = src.naturalHeight || src.height;
+  const k = Math.min(1, maxDim / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").drawImage(src, 0, 0, w, h);
+  return c;
+}
+
+function adoptImage(src) {
+  S.imgCanvas = fitCanvas(src, TEXMAX);
+  S.iw = S.imgCanvas.width; S.ih = S.imgCanvas.height;
+
+  const small = fitCanvas(src, DWMAX);
+  S.dw = small.width; S.dh = small.height;
+  const px = small.getContext("2d").getImageData(0, 0, S.dw, S.dh).data;
+
+  const res = estimateDepth(px, S.dw, S.dh);
+  S.gray = res.gray;
+  S.depth = res.depth;
+
+  const mk = Math.min(1, MWMAX / Math.max(S.iw, S.ih));
+  S.mw = Math.max(8, Math.round(S.iw * mk));
+  S.mh = Math.max(8, Math.round(S.ih * mk));
+  S.mask = new Float32Array(S.mw * S.mh);
+  S.rigid = new Float32Array(S.mw * S.mh);
+  S.maskSoft = null; S.rigidSoft = null;
+  S.maskPainted = false;
+  S.maskDirty = true;
+
+  S.hasImage = true;
+  gl_setImage(S.imgCanvas);
+  // La detección automática está apagada: la foto entra limpia y la zona la
+  // pinta el usuario. Así dos manchas separadas quedan separadas de verdad.
+  finishStroke();
+  physicsReset();
+
+  const stage = $("#stage");
+  stage.style.setProperty("--ar", S.iw + " / " + S.ih);
+  stage.classList.add("loaded");
+  sizeCanvases();
+  clearUndo();
+  paintOverlay();
+  markDirty();
+}
+
+async function loadFile(file) {
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { toast("Ese archivo no es una imagen.", true); return; }
+  const url = URL.createObjectURL(file);
+  const im = new Image();
+  im.decoding = "async";
+  im.src = url;
+  try {
+    if (im.decode) await im.decode();
+    else await new Promise((ok, no) => { im.onload = ok; im.onerror = no; });
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    toast("No se pudo abrir la foto. Probá con un JPG o PNG.", true);
+    return;
+  }
+  adoptImage(im);
+  URL.revokeObjectURL(url);
+  setEditing(true);
+  toast("Pintá la zona que se mueve y volvé a Probar.");
+}
+
+/* ==================================================================
+   Renderizador WebGL
+   El parallax se resuelve con iteración de punto fijo sobre el mapa
+   de profundidad: en vez de deformar una malla (que abre agujeros),
+   se busca qué píxel de la foto debería verse en cada punto.
+   El zoom es constante en todos los modos, así nada salta al entrar
+   o salir del pincel.
+   ================================================================== */
+const VERT = [
+  "attribute vec2 aPos;",
+  "varying vec2 vUv;",
+  "void main(){ vec2 t = aPos*0.5+0.5; vUv = vec2(t.x, 1.0-t.y); gl_Position = vec4(aPos,0.0,1.0); }"
+].join("\n");
+
+const FRAG = [
+  "precision highp float;",
+  "varying vec2 vUv;",
+  "uniform sampler2D uImage,uMask,uDisp;",
+  "uniform vec2 uPan;",
+  "uniform vec2 uLight;",
+  "uniform float uZoom,uDispMax,uJelly,uShade,uAO;",
+  "float hAt(vec2 uv){ return (texture2D(uDisp, uv).b - 0.5) * 2.0; }",
+  "void main(){",
+  "  vec2 s = (vUv-0.5)/uZoom + 0.5 + uPan;",
+  "  float m = texture2D(uMask, s).r;",
+  "  vec2 dsp = (texture2D(uDisp, s).rg * 255.0 - 128.0) / 127.0 * uDispMax * uJelly;",
+  "  s -= dsp * m;",
+  "  s = clamp(s, 0.0005, 0.9995);",
+  "  vec3 img = texture2D(uImage, s).rgb;",
+  "  if(uShade > 0.001){",
+  // una celda de la malla: por debajo de eso sólo se ve la interpolación
+  "    float e = 0.021;",
+  "    float gx = hAt(s + vec2(e,0.0)) - hAt(s - vec2(e,0.0));",
+  "    float gy = hAt(s + vec2(0.0,e)) - hAt(s - vec2(0.0,e));",
+  "    float hc = hAt(s);",
+  "    float lit = uShade * (gx*uLight.x + gy*uLight.y);",
+  "    float pit = uAO * max(0.0, -hc) * max(0.0, -hc);",
+  "    float sh = clamp(1.0 + lit - pit, 0.70, 1.10);",
+  "    img *= mix(1.0, sh, m*m);",
+  "  }",
+  "  gl_FragColor = vec4(img, 1.0);",
+  "}"
+].join("\n");
+
+let gl = null, prog = null, U = {}, TEX = {};
+
+function gl_init() {
+  const cv = $("#gl");
+  const opts = { alpha: false, antialias: false, preserveDrawingBuffer: true, powerPreference: "high-performance" };
+  gl = cv.getContext("webgl", opts) || cv.getContext("experimental-webgl", opts);
+  if (!gl) { toast("Este navegador no tiene WebGL, que es lo que dibuja el efecto.", true); return false; }
+
+  const mk = (type, src) => {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    return sh;
+  };
+  prog = gl.createProgram();
+  gl.attachShader(prog, mk(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(prog, mk(gl.FRAGMENT_SHADER, FRAG));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, "aPos");
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  ["uPan", "uLight", "uShade", "uAO", "uZoom", "uDispMax", "uJelly",
+   "uImage", "uMask", "uDisp"].forEach((n) => { U[n] = gl.getUniformLocation(prog, n); });
+
+  gl.uniform1i(U.uImage, 0); gl.uniform1i(U.uMask, 2); gl.uniform1i(U.uDisp, 3);
+  gl.uniform1f(U.uDispMax, STORE);
+  gl.uniform2f(U.uLight, -1.0, -1.0); // luz desde arriba a la izquierda
+  gl.uniform1f(U.uZoom, ZOOM);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+  TEX.image = newTex();
+  TEX.mask = newTex();
+  TEX.disp = newTex();
+
+  gl_setMask(new Float32Array([0]), 1, 1);
+  gl_uploadDisp(new Uint8Array([128, 128, 128, 255]), 1, 1);
+  return true;
+}
+
+function newTex() {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  return t;
+}
+
+function gl_setImage(canvas) {
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, TEX.image);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  markDirty();
+}
+function f32ToBytes(src, out) {
+  const b = out && out.length === src.length ? out : new Uint8Array(src.length);
+  for (let i = 0; i < src.length; i++) b[i] = Math.round(clamp(src[i], 0, 1) * 255);
+  return b;
+}
+let maskBytes = null;
+function gl_setMask(f, w, h) {
+  maskBytes = f32ToBytes(f, maskBytes);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, TEX.mask);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, maskBytes);
+  markDirty();
+}
+function gl_uploadDisp(bytes, w, h) {
+  gl.activeTexture(gl.TEXTURE3);
+  gl.bindTexture(gl.TEXTURE_2D, TEX.disp);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+  markDirty();
+}
+
+/* ==================================================================
+   Física: malla masa-resorte de GX×GY nodos.
+   Cada nodo tira hacia su reposo y hacia sus vecinos; la máscara
+   decide cuánto se mueve y dónde queda clavado. Cuando todo se
+   aquieta la malla se duerme y deja de consumir batería.
+   ================================================================== */
+const P = {
+  ox: new Float32Array(GX * GY), oy: new Float32Array(GX * GY),
+  vx: new Float32Array(GX * GY), vy: new Float32Array(GX * GY),
+  w: new Float32Array(GX * GY),
+  r: new Float32Array(GX * GY),   // cuán rígido es cada nodo
+  h: new Float32Array(GX * GY),   // altura: negativo = hundido (para la sombra)
+  hs: new Float32Array(GX * GY),
+  px: new Float32Array(GX * GY), py: new Float32Array(GX * GY), // instantánea del paso anterior
+  qvx: new Float32Array(GX * GY), qvy: new Float32Array(GX * GY),
+  wh: new Float32Array(GX * GY),  // máscara sin difuminar: define las islas
+  isl: new Int32Array(GX * GY),   // a qué mancha pertenece cada nodo (0 = ninguna)
+  bytes: new Uint8Array(GX * GY * 4),
+  driveX: 0, driveY: 0,
+  burst: 0, burstDir: 0, burstPhase: 0,
+  grabs: [],    // un agarre por dedo: dos dedos que se acercan pellizcan
+  awake: false,
+};
+
+const PRESETS = {
+  jelly:  { k: 64,  ks: 172, c: 3.0, cs: 10.0, grav: 0,  gx: 0, gy: 0 },
+  cloth:  { k: 14,  ks: 120, c: 1.5, grav: 55, gx: 0, gy: 1 },
+  water:  { k: 9,   ks: 520, c: 0.7, grav: 18, gx: 0, gy: 1 },
+  spring: { k: 190, ks: 70,  c: 3.6, grav: 0,  gx: 0, gy: 0 },
+};
+
+/**
+ * Gravedad en unidades uv: es directamente cuánto cae la zona en reposo.
+ * "Del teléfono" la saca de la inclinación real: con el aparato acostado
+ * (beta y gamma en cero) no hay gravedad en el plano de la foto, y parado
+ * apunta hacia abajo. Eso sale de deviceorientation, que tiene signos
+ * definidos por norma, no de accelerationIncludingGravity, que los invierte
+ * según el navegador.
+ */
+function gravityVec() {
+  const g = (S.p.grav / 100) * 0.055;
+  if (g <= 0) return { x: 0, y: 0 };
+  let x = S.gx, y = S.gy;
+  if (S.gravFollow) {
+    if (!SENS.hasTilt) return { x: 0, y: 0 };
+    x = SENS.gvx; y = SENS.gvy;
+  }
+  const n = Math.hypot(x, y);
+  if (n < 1e-4) return { x: 0, y: 0 };
+  return { x: x / n * g, y: y / n * g };
+}
+
+const DENT = 0.040; // cuánto se hunde al apoyar el dedo, en unidades uv
+
+function physicsReset() {
+  P.ox.fill(0); P.oy.fill(0); P.vx.fill(0); P.vy.fill(0);
+  P.driveX = P.driveY = 0; P.burst = 0; P.grabs.length = 0; P.awake = false;
+  P.r.fill(0); P.h.fill(0); P.hs.fill(0); P.isl.fill(0);
+  sampleMaskToGrid();
+  physicsUpload();
+}
+
+function setDrive(x, y) {
+  P.driveX = x; P.driveY = y;
+  if (Math.abs(x) > 1e-5 || Math.abs(y) > 1e-5) P.awake = true;
+}
+
+/* Piezas rígidas: cada mancha pintada de violeta es un cuerpo aparte, así
+   dos frutillas no se arrastran entre sí. Se etiquetan por inundación sobre
+   la grilla, que son 1024 nodos: sale gratis y se rehace en cada trazo. */
+const RIG = { comps: [] };
+
+function buildRigidComponents() {
+  RIG.comps = [];
+  const seen = new Uint8Array(GX * GY);
+  const stack = [];
+  for (let n0 = 0; n0 < GX * GY; n0++) {
+    if (seen[n0] || P.r[n0] < 0.05 || P.w[n0] < 0.05) continue;
+    const comp = [];
+    stack.length = 0; stack.push(n0); seen[n0] = 1;
+    while (stack.length) {
+      const n = stack.pop();
+      comp.push(n);
+      const i = n % GX, j = (n / GX) | 0;
+      const push = (m) => { if (!seen[m] && P.r[m] >= 0.05 && P.w[m] >= 0.05) { seen[m] = 1; stack.push(m); } };
+      if (i > 0) push(n - 1);
+      if (i < GX - 1) push(n + 1);
+      if (j > 0) push(n - GX);
+      if (j < GY - 1) push(n + GX);
+    }
+    if (comp.length >= 2) RIG.comps.push(Uint16Array.from(comp));
+  }
+}
+
+/**
+ * Ajuste de forma (Müller et al.): para cada pieza rígida se busca la
+ * rotación y traslación que mejor explican dónde quedaron sus nodos, y se
+ * los lleva ahí. La pieza entonces viaja y se inclina con la gelatina, pero
+ * no se estira: la frutilla no pierde su forma.
+ */
+function applyRigid() {
+  if (!RIG.comps.length) return;
+  const AR = S.ih && S.iw ? S.ih / S.iw : 1;
+  const sxg = 1 / (GX - 1), syg = AR / (GY - 1);
+  for (const comp of RIG.comps) {
+    let sw = 0, cqx = 0, cqy = 0, cpx = 0, cpy = 0, cvx = 0, cvy = 0;
+    for (let t = 0; t < comp.length; t++) {
+      const n = comp[t], wt = P.r[n];
+      const i = n % GX, j = (n / GX) | 0;
+      const qx = i * sxg, qy = j * syg;
+      sw += wt;
+      cqx += qx * wt; cqy += qy * wt;
+      cpx += (qx + P.ox[n]) * wt; cpy += (qy + P.oy[n] * AR) * wt;
+      cvx += P.vx[n] * wt; cvy += P.vy[n] * wt;
+    }
+    if (sw < 1e-5) continue;
+    cqx /= sw; cqy /= sw; cpx /= sw; cpy /= sw; cvx /= sw; cvy /= sw;
+
+    let a = 0, b = 0;
+    for (let t = 0; t < comp.length; t++) {
+      const n = comp[t], wt = P.r[n];
+      const i = n % GX, j = (n / GX) | 0;
+      const qx = i * sxg - cqx, qy = j * syg - cqy;
+      const pxr = qx + cqx + P.ox[n] - cpx, pyr = qy + cqy + P.oy[n] * AR - cpy;
+      a += wt * (pxr * qx + pyr * qy);
+      b += wt * (pyr * qx - pxr * qy);
+    }
+    const len = Math.hypot(a, b);
+    const co = len > 1e-9 ? a / len : 1, si = len > 1e-9 ? b / len : 0;
+
+    for (let t = 0; t < comp.length; t++) {
+      const n = comp[t], rr = clamp(P.r[n], 0, 1);
+      const i = n % GX, j = (n / GX) | 0;
+      const qx = i * sxg - cqx, qy = j * syg - cqy;
+      const gx = cpx + co * qx - si * qy;
+      const gy = cpy + si * qx + co * qy;
+      const tox = gx - i * sxg, toy = (gy - j * syg) / AR;
+      P.ox[n] += (tox - P.ox[n]) * rr;
+      P.oy[n] += (toy - P.oy[n]) * rr;
+      P.vx[n] += (cvx - P.vx[n]) * rr;
+      P.vy[n] += (cvy - P.vy[n]) * rr;
+    }
+  }
+}
+
+function sampleGrid(src, dst) {
+  if (!src) { dst.fill(0); return; }
+  for (let gy = 0; gy < GY; gy++) {
+    const v = gy / (GY - 1) * (S.mh - 1);
+    const y0 = Math.min(S.mh - 1, v | 0), y1 = Math.min(S.mh - 1, y0 + 1), fy = v - y0;
+    for (let gx = 0; gx < GX; gx++) {
+      const u = gx / (GX - 1) * (S.mw - 1);
+      const x0 = Math.min(S.mw - 1, u | 0), x1 = Math.min(S.mw - 1, x0 + 1), fx = u - x0;
+      const a = src[y0 * S.mw + x0], b = src[y0 * S.mw + x1];
+      const c = src[y1 * S.mw + x0], d = src[y1 * S.mw + x1];
+      dst[gy * GX + gx] = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+    }
+  }
+}
+
+function sampleMaskToGrid(src) {
+  const m = src || S.maskSoft || S.mask;
+  sampleGrid(S.rigidSoft || S.rigid, P.r);
+  if (!m) { P.w.fill(0); P.isl.fill(0); buildRigidComponents(); return; }
+  for (let gy = 0; gy < GY; gy++) {
+    const v = gy / (GY - 1) * (S.mh - 1);
+    const y0 = Math.min(S.mh - 1, v | 0), y1 = Math.min(S.mh - 1, y0 + 1), fy = v - y0;
+    for (let gx = 0; gx < GX; gx++) {
+      const u = gx / (GX - 1) * (S.mw - 1);
+      const x0 = Math.min(S.mw - 1, u | 0), x1 = Math.min(S.mw - 1, x0 + 1), fx = u - x0;
+      const a = m[y0 * S.mw + x0], b = m[y0 * S.mw + x1];
+      const c = m[y1 * S.mw + x0], d = m[y1 * S.mw + x1];
+      P.w[gy * GX + gx] = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+    }
+  }
+  buildIslands();
+  buildRigidComponents();
+}
+
+/**
+ * Islas: cada mancha pintada que no toca a otra es un cuerpo aparte. Se
+ * etiquetan sobre la máscara SIN difuminar —el difuminado del borde puede
+ * tender un puente de dos píxeles entre dos círculos vecinos y volverlos uno
+ * solo— y después la etiqueta se dilata sobre ese fleco para que el borde
+ * blando siga pegado a su mancha. En la física, dos nodos sólo se tiran
+ * entre sí si comparten isla: tocás el círculo 1 y el 2 ni se entera.
+ */
+function buildIslands() {
+  const src = S.mask;
+  const wh = P.wh, isl = P.isl;
+  isl.fill(0);
+  if (!src) { wh.fill(0); return; }
+  sampleGrid(src, wh);
+  const cola = new Int32Array(GX * GY);
+  let n0 = 0, id = 0;
+  const SEM = 0.06;
+  for (n0 = 0; n0 < GX * GY; n0++) {
+    if (isl[n0] || wh[n0] < SEM) continue;
+    id++;
+    let head = 0, tail = 0;
+    cola[tail++] = n0; isl[n0] = id;
+    while (head < tail) {
+      const n = cola[head++];
+      const i = n % GX, j = (n / GX) | 0;
+      const t = (m) => { if (!isl[m] && wh[m] >= SEM) { isl[m] = id; cola[tail++] = m; } };
+      if (i > 0) t(n - 1);
+      if (i < GX - 1) t(n + 1);
+      if (j > 0) t(n - GX);
+      if (j < GY - 1) t(n + GX);
+    }
+  }
+  // el fleco difuminado hereda la isla del vecino más marcado
+  for (let pass = 0; pass < 3; pass++) {
+    let cambio = false;
+    for (let j = 0; j < GY; j++) {
+      for (let i = 0; i < GX; i++) {
+        const n = j * GX + i;
+        if (isl[n] || P.w[n] < 0.012) continue;
+        let best = -1, bid = 0;
+        const t = (m) => { if (isl[m] && wh[m] > best) { best = wh[m]; bid = isl[m]; } };
+        if (i > 0) t(n - 1);
+        if (i < GX - 1) t(n + 1);
+        if (j > 0) t(n - GX);
+        if (j < GY - 1) t(n + GX);
+        if (bid) { isl[n] = bid; cambio = true; }
+      }
+    }
+    if (!cambio) break;
+  }
+}
+
+function physicsParams() {
+  const pr = PRESETS[S.preset] || PRESETS.jelly;
+  // Rango de rigidez más bajo: en 30 el material queda claramente blando.
+  const stiffK = 0.18 + (S.p.stiff / 100) * 1.9;
+  const damp = 2.8 - (S.p.bounce / 100) * 2.3; // más rebote = menos amortiguación
+  // Sin reescalar por el paso de grilla: la corrección era correcta para el
+  // continuo, pero dejaba cada nodo demasiado suelto de sus vecinos y el
+  // objeto no se movía como una masa. Con acoplamiento pleno vuelve a fluir.
+  // Amortiguador entre vecinos (sólido de Kelvin-Voigt). Frena la velocidad
+  // RELATIVA, no la del conjunto: la masa entera puede moverse, pero la
+  // ondita que corre por la superficie se apaga. Es la diferencia entre un
+  // tejido blando y un líquido.
+  const cs = (pr.cs || 0) * (0.55 + (1 - S.p.bounce / 100) * 1.15);
+  return { k: pr.k * stiffK, ks: pr.ks * stiffK, c: pr.c * damp, cs: cs };
+}
+
+function wakePhysics() { if (S.maskPainted) { P.awake = true; markDirty(); } }
+
+function physicsStep(dt) {
+  const pp = physicsParams();
+  const k = pp.k, ks = pp.ks, c = pp.c, cs = pp.cs;
+  const G = gravityVec();
+  const grabs = P.grabs;
+  for (let gi = 0; gi < grabs.length; gi++) grabs[gi].press = Math.min(1, grabs[gi].press + dt * 12);
+  // El anclaje sólo tiene que morder cerca del borde de la zona. Con la
+  // potencia 3 y 400 de rigidez, media máscara quedaba agarrotada y un
+  // objeto grande casi no se movía.
+  const kAnchor = 260, cAnchor = 8;
+  const ox = P.ox, oy = P.oy, vx = P.vx, vy = P.vy, w = P.w, px = P.px, py = P.py;
+  const qvx = P.qvx, qvy = P.qvy, isl = P.isl;
+  px.set(ox); py.set(oy); qvx.set(vx); qvy.set(vy);
+
+  let dx = P.driveX, dy = P.driveY;
+  if (P.burst > 0) {
+    P.burstPhase += dt * 15;
+    const a = 0.055 * P.burst;
+    dx += Math.cos(P.burstDir) * a * Math.sin(P.burstPhase);
+    dy += Math.sin(P.burstDir) * a * Math.sin(P.burstPhase);
+    P.burst = Math.max(0, P.burst - dt * 1.6);
+  }
+  dx += G.x; dy += G.y;
+
+  let maxV = 0, maxD = 0;
+  for (let j = 0; j < GY; j++) {
+    for (let i = 0; i < GX; i++) {
+      const n = j * GX + i;
+      const wn = w[n];
+      if (wn < 0.012) { ox[n] = oy[n] = vx[n] = vy[n] = 0; continue; }
+      // sólo cuentan los vecinos de la MISMA mancha
+      const il = isl[n];
+      let sx = 0, sy = 0, ux = 0, uy = 0, cnt = 0;
+      const vec = (m) => {
+        if (isl[m] !== il) return;
+        sx += px[m]; sy += py[m]; ux += qvx[m]; uy += qvy[m]; cnt++;
+      };
+      if (i > 0) vec(n - 1);
+      if (i < GX - 1) vec(n + 1);
+      if (j > 0) vec(n - GX);
+      if (j < GY - 1) vec(n + GX);
+      const soft = 1 - wn, soft2 = soft * soft, soft4 = soft2 * soft2;
+      const kn = k + kAnchor * soft4;
+      const cn = c + cAnchor * soft2;
+      // El acoplamiento también baja con la fuerza pintada: un núcleo rígido
+      // no sólo tira más fuerte hacia su sitio, además se deja arrastrar
+      // menos por los vecinos blandos. Sin esto el centro se va con el borde.
+      const ksn = ks * (0.18 + 0.82 * wn);
+      // Viscosidad interna: cada resorte con su vecino lleva un pistón en
+      // paralelo. Apaga la onda que corre por la superficie sin frenar el
+      // vaivén del conjunto: por eso deja de parecer agua.
+      const csn = cs * (0.30 + 0.70 * wn);
+      let fx = -kn * px[n] + ksn * (sx - cnt * px[n]) - cn * vx[n] + csn * (ux - cnt * qvx[n]) + dx * wn * kn;
+      let fy = -kn * py[n] + ksn * (sy - cnt * py[n]) - cn * vy[n] + csn * (uy - cnt * qvy[n]) + dy * wn * kn;
+      // Un aporte por dedo. Con dos dedos, cada uno arrastra su parche y lo
+      // que queda en el medio se comprime: eso es el pellizco.
+      let maxgf = 0, hh = 0;
+      for (let gi = 0; gi < grabs.length; gi++) {
+        const g = grabs[gi];
+        if (g.isl && il && g.isl !== il) continue; // el dedo no cruza a la mancha de al lado
+        const gdx = i - g.cx, gdy = j - g.cy, gd2 = gdx * gdx + gdy * gdy;
+        const gf = Math.exp(-gd2 / g.r2);
+        if (gf <= 0.008) continue;
+        if (gf > maxgf) maxgf = gf;
+        const gd = Math.sqrt(gd2);
+        const uu = gd / g.r, u2 = uu * uu;
+        // Hoyo en el centro y REBORDE alrededor: el material que baja tiene
+        // que salir por algún lado. Un hoyo pelado se lee como un agujero;
+        // con el borde levantado se lee como carne empujada por el dedo.
+        const ring = u2 * Math.exp(1 - u2);
+        hh -= g.press * (gf * gf - 0.40 * ring) * (g.dent / DENT);
+        // Objetivo = a dónde llevó el dedo + un hundido HACIA el punto tocado.
+        let tgx = g.tx, tgy = g.ty;
+        if (gd > 1e-3) {
+          const u = uu;
+          const prof = u * Math.exp(0.5 - 0.5 * u * u); // 0 en el centro, pico en el borde
+          const amp = g.press * g.dent * prof;
+          tgx -= gdx / gd * amp;
+          tgy -= gdy / gd * amp;
+        }
+        const kg = 1200 * gf * wn;
+        fx += kg * (tgx - px[n]);
+        fy += kg * (tgy - py[n]);
+      }
+      if (maxgf > 0) {
+        // el rozamiento se toma una sola vez: sumar el de cada dedo pasaría
+        // el límite de estabilidad del integrador
+        const cg = 70 * maxgf;
+        fx -= cg * vx[n];
+        fy -= cg * vy[n];
+      }
+      let nvx = vx[n] + fx * dt, nvy = vy[n] + fy * dt;
+      let nx = px[n] + nvx * dt, ny = py[n] + nvy * dt;
+      if (nx > STORE) { nx = STORE; if (nvx > 0) nvx = 0; }
+      else if (nx < -STORE) { nx = -STORE; if (nvx < 0) nvx = 0; }
+      if (ny > STORE) { ny = STORE; if (nvy > 0) nvy = 0; }
+      else if (ny < -STORE) { ny = -STORE; if (nvy < 0) nvy = 0; }
+      vx[n] = nvx; vy[n] = nvy; ox[n] = nx; oy[n] = ny;
+      P.h[n] = hh * wn * wn;
+      const av = Math.abs(nvx) + Math.abs(nvy);
+      if (av > maxV) maxV = av;
+      const ad = Math.abs(nx - px[n]) + Math.abs(ny - py[n]);
+      if (ad > maxD) maxD = ad;
+    }
+  }
+
+  // El material que se comprime se abulta y el que se estira se hunde: eso
+  // le da sombra al temblor, no sólo al dedo.
+  for (let j = 0; j < GY; j++) {
+    for (let i = 0; i < GX; i++) {
+      const n = j * GX + i;
+      if (w[n] < 0.012) { P.h[n] = 0; continue; }
+      const il = P.isl[n];
+      const mismo = (m) => P.isl[m] === il;
+      const xr = i < GX - 1 && mismo(n + 1) ? ox[n + 1] : ox[n], xl = i > 0 && mismo(n - 1) ? ox[n - 1] : ox[n];
+      const yd = j < GY - 1 && mismo(n + GX) ? oy[n + GX] : oy[n], yu = j > 0 && mismo(n - GX) ? oy[n - GX] : oy[n];
+      P.h[n] -= ((xr - xl) + (yd - yu)) * 3 * w[n] * w[n];
+    }
+  }
+
+  // Un desenfoque de 3×3 sobre la altura: sin esto la interpolación de la
+  // grilla se ve como bandas en la sombra.
+  const hs = P.hs;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let j = 0; j < GY; j++) {
+      for (let i = 0; i < GX; i++) {
+        const n = j * GX + i, il = P.isl[n];
+        const pick = (m) => (P.isl[m] === il ? m : n);
+        const l = i > 0 ? pick(n - 1) : n, r2 = i < GX - 1 ? pick(n + 1) : n;
+        const u2 = j > 0 ? pick(n - GX) : n, d3 = j < GY - 1 ? pick(n + GX) : n;
+        hs[n] = (P.h[n] * 2 + P.h[l] + P.h[r2] + P.h[u2] + P.h[d3]) / 6;
+      }
+    }
+    P.h.set(hs);
+  }
+
+  applyRigid();
+
+  // Con gravedad el reposo NO es cero: la zona queda caída. Por eso se mide
+  // la velocidad y el cambio por paso, y sólo se pone todo en cero cuando no
+  // hay gravedad, que es cuando el reposo verdadero sí es cero.
+  const idle = !grabs.length && Math.abs(P.driveX) < 1e-5 && Math.abs(P.driveY) < 1e-5 && P.burst <= 0;
+  if (idle && maxV < 8e-4 && maxD < 1e-6) {
+    if (G.x === 0 && G.y === 0) { P.ox.fill(0); P.oy.fill(0); }
+    P.vx.fill(0); P.vy.fill(0);
+    P.awake = false;
+    return false;
+  }
+  return true;
+}
+
+function physicsUpload() {
+  const b = P.bytes;
+  for (let n = 0, o = 0; n < GX * GY; n++, o += 4) {
+    b[o] = 128 + Math.round(clamp(P.ox[n] / STORE, -1, 1) * 127);
+    b[o + 1] = 128 + Math.round(clamp(P.oy[n] / STORE, -1, 1) * 127);
+    b[o + 2] = 128 + Math.round(clamp(P.h[n] / 1.2, -1, 1) * 127);
+    b[o + 3] = 255;
+  }
+  gl_uploadDisp(b, GX, GY);
+}
+
+/** Valor de la máscara suavizada en coordenadas de la foto. */
+function maskAt(u, v) {
+  const m = S.maskSoft || S.mask;
+  if (!m) return 0;
+  const x = clamp(u, 0, 1) * (S.mw - 1), y = clamp(v, 0, 1) * (S.mh - 1);
+  const x0 = x | 0, y0 = y | 0;
+  const x1 = Math.min(S.mw - 1, x0 + 1), y1 = Math.min(S.mh - 1, y0 + 1);
+  const fx = x - x0, fy = y - y0;
+  const a = m[y0 * S.mw + x0], b = m[y0 * S.mw + x1];
+  const c = m[y1 * S.mw + x0], d = m[y1 * S.mw + x1];
+  return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+}
+
+/* ------------------------------------------------------------ agarre ----
+   Mientras el dedo sostiene la zona, los nodos de alrededor no reciben un
+   golpe sino un resorte muy duro hacia donde está el dedo: la deformación
+   se queda quieta ahí hasta que soltás, y recién entonces vuelve sola.     */
+/** Radio del toque, en fracción del ancho: de la yema de un dedo a la mano. */
+function touchRadiusFrac() { return 0.030 + (S.p.touch / 100) * 0.26; }
+
+function grabStart(u, v, radiusFrac) {
+  if (!S.maskPainted || P.grabs.length >= 3) return null;
+  const rf = radiusFrac || touchRadiusFrac();
+  const r = Math.max(1.2, rf * GX);
+  // el hundido acompaña al tamaño: una yema hunde poco, la mano hunde más
+  const dent = DENT * clamp(rf / 0.13, 0.45, 1.45);
+  const gi = Math.round(clamp(u, 0, 1) * (GX - 1)), gj = Math.round(clamp(v, 0, 1) * (GY - 1));
+  const g = { cx: clamp(u, 0, 1) * (GX - 1), cy: clamp(v, 0, 1) * (GY - 1), r: r, r2: r * r,
+              dent: dent, tx: 0, ty: 0, press: 0, isl: P.isl[gj * GX + gi] };
+  P.grabs.push(g);
+  P.awake = true;
+  return g;
+}
+function grabMove(g, tx, ty) {
+  if (!g) return;
+  g.tx = clamp(tx, -STORE, STORE);
+  g.ty = clamp(ty, -STORE, STORE);
+  P.awake = true;
+  markDirty();
+}
+/**
+ * Al soltar, la mano le deja su velocidad al material. Sin esto, sacudir con
+ * el dedo no servía de nada: la deformación volvía a cero como si hubieras
+ * soltado despacio. Con el impulso, un manotazo lo deja hamacándose, que es
+ * lo mismo que consigue el acelerómetro cuando sacudís el teléfono.
+ */
+// El tope de desplazamiento (STORE) se come cualquier exceso: si el envión es
+// enorme la malla choca contra el límite y la energía se pierde ahí. Con esta
+// ganancia el manotazo se nota sin llegar a chocar.
+const FLICK_GAIN = 0.34, FLICK_MAX = 1.1;   // uv por segundo
+function grabEnd(g, vx, vy) {
+  const i = P.grabs.indexOf(g);
+  if (i >= 0) P.grabs.splice(i, 1);
+  if (g && (vx || vy)) {
+    const sx = clamp((vx || 0) * FLICK_GAIN, -FLICK_MAX, FLICK_MAX);
+    const sy = clamp((vy || 0) * FLICK_GAIN, -FLICK_MAX, FLICK_MAX);
+    if (Math.hypot(sx, sy) > 0.05) {
+      for (let j = 0; j < GY; j++) {
+        for (let i2 = 0; i2 < GX; i2++) {
+          const n = j * GX + i2, wn = P.w[n];
+          if (wn < 0.012) continue;
+          if (g.isl && P.isl[n] && P.isl[n] !== g.isl) continue;
+          const dx = i2 - g.cx, dy = j - g.cy;
+          const gf = Math.exp(-(dx * dx + dy * dy) / (g.r2 * 2.2));
+          if (gf < 0.02) continue;
+          P.vx[n] += sx * gf * wn;
+          P.vy[n] += sy * gf * wn;
+        }
+      }
+    }
+  }
+  P.awake = true;
+}
+
+function kick(strength, dir) {
+  if (!S.maskPainted) return;
+  P.burst = strength;
+  P.burstPhase = 0;
+  P.burstDir = dir === undefined ? Math.random() * Math.PI * 2 : dir;
+  P.awake = true;
+  // golpe seco inicial, además del zarandeo que sigue
+  const cx = Math.cos(P.burstDir) * strength * 0.34, cy = Math.sin(P.burstDir) * strength * 0.34;
+  for (let n = 0; n < GX * GY; n++) {
+    const wn = P.w[n];
+    if (wn < 0.012) continue;
+    P.vx[n] += cx * wn; P.vy[n] += cy * wn;
+  }
+}
+
+/* ==================================================================
+   Bucle de dibujo
+   ================================================================== */
+const M = {
+  targetX: 0, targetY: 0,
+  curX: 0, curY: 0,
+  orbit: false, orbitT: 0,
+  lastT: 0, acc: 0,
+  capture: false,
+};
+
+function sizeCanvases() {
+  const stage = $("#stage");
+  // A pantalla completa el escenario se calcula a mano: con aspect-ratio y
+  // dos topes el navegador no resuelve bien el encaje.
+  if (S.immersive && S.hasImage) {
+    const vw = window.innerWidth, vh = window.innerHeight, ar = S.iw / S.ih;
+    let w = vw, h = vw / ar;
+    if (h > vh) { h = vh; w = vh * ar; }
+    stage.style.width = Math.floor(w) + "px";
+    stage.style.height = Math.floor(h) + "px";
+  } else if (stage.style.width) {
+    stage.style.width = ""; stage.style.height = "";
+  }
+  const r = stage.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.max(2, Math.round(r.width * dpr)), h = Math.max(2, Math.round(r.height * dpr));
+  const cv = $("#gl");
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; markDirty(); }
+  const pc = $("#paint");
+  if (pc.width !== w || pc.height !== h) { pc.width = w; pc.height = h; paintOverlay(); }
+}
+
+// El desplazamiento máximo es amp*0.5 (la profundidad va de -0.5 a +0.5
+// alrededor del plano de enfoque). Con 0.062 el efecto llegaba al 1% de la
+// foto: invisible. Con 0.115 al tope da ~3%, que sí se lee, y entra holgado
+// en el margen del ZOOM (8%).
+function drawScene() {
+  const cv = $("#gl");
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.uniform2f(U.uPan, S.view.px, S.view.py);
+  gl.uniform1f(U.uZoom, ZOOM * S.view.scale);
+  // Arranca en cero de verdad, pero con curva suave para que el rango bajo
+  // sea utilizable y el medio recupere el recorrido que tenía antes.
+  gl.uniform1f(U.uJelly, S.editing ? 0 : Math.pow(S.p.amp / 100, 0.9) * 2.6);
+  const sh = S.editing ? 0 : (S.p.shade / 100);
+  gl.uniform1f(U.uShade, sh * 4.0);
+  gl.uniform1f(U.uAO, sh * 0.42);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+function frame(t) {
+  requestAnimationFrame(frame);
+  if (!gl || M.capture) { M.lastT = t; return; }
+  const dt = M.lastT ? Math.min(0.05, (t - M.lastT) / 1000) : 0.016;
+  M.lastT = t;
+
+  let active = false;
+
+  if (S.hasImage && P.awake) {
+    M.acc += dt;
+    let guard = 0, alive = true;
+    while (M.acc > 1 / 120 && guard++ < 6) { alive = physicsStep(1 / 120); M.acc -= 1 / 120; }
+    physicsUpload();
+    active = true;
+    if (!alive) M.acc = 0;
+  } else {
+    M.acc = 0;
+  }
+
+  if (!active && !dirty && !S.recording) return;
+  drawScene();
+  dirty = false;
+}
+
+/* ==================================================================
+   Capa de pintura
+   Sólo existe mientras el pincel está activo: en modo normal la foto
+   se ve limpia, sin ninguna marca encima. Como el visor recorta un
+   ZOOM fijo, las coordenadas del dedo se convierten a coordenadas de
+   la foto con ese mismo factor.
+   ================================================================== */
+let maskTmp = null, brushPos = null;
+
+const viewZ = () => ZOOM * S.view.scale;
+const uvToImage = (uv) => ({
+  x: (uv.x - 0.5) / viewZ() + 0.5 + S.view.px,
+  y: (uv.y - 0.5) / viewZ() + 0.5 + S.view.py,
+});
+
+/** Encierra el encuadre para que no se vea fuera de la foto. */
+function clampView() {
+  const half = Math.max(0, 0.5 - 0.5 / viewZ());
+  S.view.px = clamp(S.view.px, -half, half);
+  S.view.py = clamp(S.view.py, -half, half);
+}
+function resetView() {
+  S.view.scale = 1; S.view.px = 0; S.view.py = 0;
+  refreshZoomBadge();
+  markDirty();
+}
+function refreshZoomBadge() {
+  const b = $("#zoomBadge");
+  if (!b) return;
+  const on = S.editing && S.view.scale > 1.01;
+  b.hidden = !on;
+  if (on) b.firstChild.textContent = S.view.scale.toFixed(1).replace(".", ",") + "×  ";
+}
+
+function buildMaskLayer() {
+  if (!maskTmp || maskTmp.width !== S.mw || maskTmp.height !== S.mh) {
+    maskTmp = document.createElement("canvas");
+    maskTmp.width = S.mw; maskTmp.height = S.mh;
+  }
+  const mc = maskTmp.getContext("2d");
+  const id = mc.createImageData(S.mw, S.mh);
+  const d = id.data;
+  for (let i = 0, o = 0; i < S.mask.length; i++, o += 4) {
+    const m = clamp(S.mask[i], 0, 1);
+    const rg = clamp(S.rigid[i], 0, 1);
+    // rosa = cuánto tiembla · violeta = pieza que viaja sin deformarse
+    const a1 = (1 - m) * 0.5;
+    const a2 = m * 0.5 * (1 - rg);
+    const a3 = rg * 0.55;
+    let A = a1, R = 6, G = 9, B = 20;
+    const over = (ca, cr, cg2, cb) => {
+      const na = ca + A * (1 - ca);
+      if (na <= 0) return;
+      R = (cr * ca + R * A * (1 - ca)) / na;
+      G = (cg2 * ca + G * A * (1 - ca)) / na;
+      B = (cb * ca + B * A * (1 - ca)) / na;
+      A = na;
+    };
+    over(a2, 255, 94, 146);
+    over(a3, 158, 134, 255);
+    if (A <= 0.002) { d[o + 3] = 0; continue; }
+    d[o] = R; d[o + 1] = G; d[o + 2] = B; d[o + 3] = A * 255;
+  }
+  mc.putImageData(id, 0, 0);
+  S.maskDirty = false;
+}
+
+function paintOverlay() {
+  const pc = $("#paint");
+  const ctx = pc.getContext("2d");
+  ctx.clearRect(0, 0, pc.width, pc.height);
+  if (!S.hasImage || (!S.editing && !S.previewMask)) return;
+
+  if (S.mode === "jelly" && S.mask) {
+    if (S.maskDirty) buildMaskLayer();
+    // mismo encuadre que el visor: uv_pantalla = (uv_foto - 0.5 - pan)*Z + 0.5
+    const Z = viewZ();
+    const ox = (0.5 - (0.5 + S.view.px) * Z) * pc.width;
+    const oy = (0.5 - (0.5 + S.view.py) * Z) * pc.height;
+    ctx.drawImage(maskTmp, ox, oy, pc.width * Z, pc.height * Z);
+  }
+
+  if (brushPos && S.editing) {
+    const rad = brushRadiusFrac() * Math.min(pc.width, pc.height) * viewZ();
+    ctx.beginPath();
+    ctx.arc(brushPos.x * pc.width, brushPos.y * pc.height, rad, 0, Math.PI * 2);
+    ctx.strokeStyle = S.brushJ === "add" ? "#FF5E92" : S.brushJ === "rigid" ? "#9E86FF" : "#93A0B8";
+    ctx.lineWidth = Math.max(1.5, pc.width / 340);
+    ctx.stroke();
+    ctx.strokeStyle = "#06080Caa";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+function brushSize() { return +$("#sBrushJ").value; }
+/* Curva en el radio: el extremo bajo del deslizador necesita resolución para
+   llegar a un pincel de un par de píxeles, no a uno del 5% de la foto. */
+function brushRadiusFrac() { return Math.pow(brushSize() / 100, 1.3) * 0.9; }
+
+/** Pinta un disco de núcleo sólido y borde suave en un buffer Float32. */
+function stamp(buf, w, h, ux, uy, radiusFrac, amount, mode) {
+  const cx = ux * w, cy = uy * h;
+  const R = radiusFrac * Math.min(w, h);
+  const x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(w - 1, Math.ceil(cx + R));
+  const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(h - 1, Math.ceil(cy + R));
+  const R2 = R * R;
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+      if (d2 > R2) continue;
+      const t = clamp((1 - Math.sqrt(d2) / R) / 0.26, 0, 1);
+      const fall = t * t * (3 - 2 * t);
+      const i = y * w + x;
+      // "up" sube hasta el valor elegido y nunca baja: pintar al 50% sobre
+      // una zona que ya está al 100% la extiende, no la rebaja.
+      if (mode === "up") { if (buf[i] < amount) buf[i] = Math.min(amount, buf[i] + (amount - buf[i]) * fall * 0.34); }
+      else if (mode === "down") { if (buf[i] > amount) buf[i] = Math.max(amount, buf[i] - (buf[i] - amount) * fall * 0.34); }
+      else buf[i] = clamp(buf[i] + fall * amount, -0.55, 0.55);
+    }
+  }
+}
+
+/* -------------------------------------------------- gestos sobre la foto */
+let dragging = false, lastPointer = null, lastMoveT = 0;
+
+function uvFromEvent(e, el) {
+  const r = el.getBoundingClientRect();
+  return { x: clamp((e.clientX - r.left) / r.width, 0, 1), y: clamp((e.clientY - r.top) / r.height, 0, 1) };
+}
+
+let lastDepthStamp = 0, lastMaskStamp = 0;
+function applyBrush(uvScreen) {
+  const uv = uvToImage(uvScreen);
+  const rad = brushRadiusFrac();
+  if (S.mode === "jelly") {
+    // "toward" sube o baja hacia la fuerza elegida: pintando al 30% sobre una
+    // zona al 100% se la endurece, que es cómo se le da forma al centro.
+    const now = performance.now();
+    if (now - lastMaskStamp < 30) return;
+    lastMaskStamp = now;
+    if (S.brushJ === "add") {
+      stamp(S.mask, S.mw, S.mh, uv.x, uv.y, rad, S.p.flow / 100, "up");
+    } else if (S.brushJ === "rigid") {
+      // una pieza rígida tiene que moverse con la gelatina: se le da
+      // movimiento pleno y encima la marca de "no te deformes".
+      stamp(S.mask, S.mw, S.mh, uv.x, uv.y, rad, 1, "up");
+      stamp(S.rigid, S.mw, S.mh, uv.x, uv.y, rad, S.p.rflow / 100, "up");
+    } else {
+      // el borrador baja HASTA el valor elegido: en 0 borra del todo
+      stamp(S.mask, S.mw, S.mh, uv.x, uv.y, rad, S.p.eflow / 100, "down");
+      stamp(S.rigid, S.mw, S.mh, uv.x, uv.y, rad, S.p.eflow / 100, "down");
+    }
+  }
+  S.maskDirty = true;
+  gl_setMask(S.mask, S.mw, S.mh);
+}
+
+/** Cierra un trazo: difumina el borde de la máscara, que es lo que hace
+ *  que el temblor se apague de a poco en vez de cortarse en seco. */
+function finishStroke() {
+  if (!S.hasImage || !S.mask) return;
+  const soft = new Float32Array(S.mask.length);
+  boxBlur(S.mask, soft, S.mw, S.mh, Math.max(1, Math.round(S.mw / 90)));
+  S.maskSoft = soft;
+  const rsoft = new Float32Array(S.rigid.length);
+  boxBlur(S.rigid, rsoft, S.mw, S.mh, Math.max(1, Math.round(S.mw / 120)));
+  S.rigidSoft = rsoft;
+  gl_setMask(soft, S.mw, S.mh);
+  sampleMaskToGrid(soft);
+  let covered = 0, rigidPx = 0;
+  for (let i = 0; i < S.mask.length; i++) {
+    if (S.mask[i] > 0.06) covered++;
+    if (S.rigid[i] > 0.2) rigidPx++;
+  }
+  S.maskPainted = covered > 0;
+  $("#maskStat").textContent = covered
+    ? Math.round(covered / S.mask.length * 100) + "% de la foto" +
+      (rigidPx ? " · " + Math.round(rigidPx / S.mask.length * 100) + "% rígido" : "")
+    : "sin pintar";
+}
+
+
+/* ==================================================================
+   Deshacer
+   Cada trazo guarda una foto del buffer que va a tocar, cuantizada a
+   bytes: 8 pasos ocupan ~1,5 MB en vez de 4 MB en coma flotante y la
+   pérdida es invisible al lado del paso del pincel.
+   ================================================================== */
+const UNDO = [], UNDO_MAX = 8;
+
+/* 0..1 en 16 bits: 0 y 1 caen exactos. */
+function pack01(arr) {
+  const out = new Uint16Array(arr.length);
+  for (let i = 0; i < arr.length; i++) out[i] = Math.round(clamp(arr[i], 0, 1) * 65535);
+  return out;
+}
+function unpack01(src, out) {
+  for (let i = 0; i < out.length; i++) out[i] = src[i] / 65535;
+}
+/* Con signo, centrado en 32768: el cero vuelve exacto y deshacer no deja
+   un sesgo constante en todo el mapa. */
+function packS(arr, range) {
+  const out = new Uint16Array(arr.length);
+  for (let i = 0; i < arr.length; i++) out[i] = 32768 + Math.round(clamp(arr[i] / range, -1, 1) * 32767);
+  return out;
+}
+function unpackS(src, range, out) {
+  for (let i = 0; i < out.length; i++) out[i] = (src[i] - 32768) / 32767 * range;
+}
+
+/** kind: "mask" | "depth" (retoques) | "depthAll" (mapa completo) */
+function pushUndo(kind) {
+  if (!S.hasImage) return;
+  const e = { kind };
+  if (kind === "mask") { e.mask = pack01(S.mask); e.rigid = pack01(S.rigid); }
+  UNDO.push(e);
+  if (UNDO.length > UNDO_MAX) UNDO.shift();
+  refreshUndo();
+}
+
+function clearUndo() { UNDO.length = 0; refreshUndo(); }
+
+function refreshUndo() {
+  const b = $("#btnUndo");
+  if (!b) return;
+  b.hidden = !S.editing;
+  b.disabled = UNDO.length === 0;
+}
+
+function undo() {
+  const e = UNDO.pop();
+  if (!e) { toast("No hay nada para deshacer."); return; }
+  if (e.kind === "mask") {
+    unpack01(e.mask, S.mask);
+    if (e.rigid) unpack01(e.rigid, S.rigid);
+    S.maskDirty = true;
+    finishStroke();
+    paintOverlay();
+  }
+  refreshUndo();
+  markDirty();
+}
+
+function bindStage() {
+  const stage = $("#stage");
+  const pc = $("#paint");
+
+  // Con el pincel abierto: un dedo pinta, dos hacen zoom y mueven el encuadre.
+  const paintPts = new Map();
+  let pinch = null;
+
+  const pinchState = () => {
+    const a = Array.from(paintPts.values());
+    const dx = a[1].x - a[0].x, dy = a[1].y - a[0].y;
+    return { dist: Math.hypot(dx, dy), cx: (a[0].x + a[1].x) / 2, cy: (a[0].y + a[1].y) / 2 };
+  };
+
+  pc.addEventListener("pointerdown", (e) => {
+    if (!S.editing || !S.hasImage) return;
+    try { pc.setPointerCapture(e.pointerId); } catch (err) {}
+    paintPts.set(e.pointerId, uvFromEvent(e, pc));
+    if (paintPts.size === 2) {
+      dragging = false;              // se cancela el trazo en curso
+      finishStroke();
+      const st = pinchState();
+      pinch = { dist: st.dist, cx: st.cx, cy: st.cy, scale: S.view.scale, px: S.view.px, py: S.view.py };
+      brushPos = null;
+    } else if (paintPts.size === 1) {
+      pushUndo("mask");
+      dragging = true;
+      brushPos = uvFromEvent(e, pc);
+      applyBrush(brushPos);
+    }
+    paintOverlay();
+    e.preventDefault();
+  });
+
+  pc.addEventListener("pointermove", (e) => {
+    if (!S.editing) return;
+    if (paintPts.has(e.pointerId)) paintPts.set(e.pointerId, uvFromEvent(e, pc));
+    if (pinch && paintPts.size >= 2) {
+      const st = pinchState();
+      const k = st.dist > 1e-4 ? st.dist / Math.max(1e-4, pinch.dist) : 1;
+      S.view.scale = clamp(pinch.scale * k, 1, 6);
+      // el punto entre los dedos se queda donde estaba
+      const Z0 = ZOOM * pinch.scale, Z1 = viewZ();
+      S.view.px = pinch.px + (st.cx - 0.5) / Z0 - (st.cx - 0.5) / Z1 - (st.cx - pinch.cx) / Z1;
+      S.view.py = pinch.py + (st.cy - 0.5) / Z0 - (st.cy - 0.5) / Z1 - (st.cy - pinch.cy) / Z1;
+      clampView();
+      refreshZoomBadge();
+      markDirty();
+      paintOverlay();
+      return;
+    }
+    brushPos = uvFromEvent(e, pc);
+    if (dragging) applyBrush(brushPos);
+    paintOverlay();
+  });
+
+  const endStroke = (e) => {
+    if (e && paintPts.has(e.pointerId)) paintPts.delete(e.pointerId);
+    if (paintPts.size < 2) pinch = null;
+    if (paintPts.size === 0 && dragging) { dragging = false; finishStroke(); }
+    paintOverlay();
+  };
+  pc.addEventListener("pointerup", endStroke);
+  pc.addEventListener("pointercancel", endStroke);
+  // Con el dedo, salirse del borde no debe cortar el trazo: el puntero está
+  // capturado y vuelve. Sólo el mouse esconde el círculo del pincel.
+  pc.addEventListener("pointerleave", (e) => {
+    if (e.pointerType === "mouse" && !paintPts.has(e.pointerId)) { brushPos = null; paintOverlay(); }
+  });
+  pc.addEventListener("lostpointercapture", endStroke);
+
+  // En "Probar" cada dedo agarra su propio parche: con uno se hunde, con dos
+  // lo del medio se comprime y el objeto se pellizca. Si el dedo baja fuera
+  // de la zona, mueve la cámara.
+  const pointers = new Map();
+  let hintAt = 0;
+
+  stage.addEventListener("pointerdown", (e) => {
+    // Los botones que flotan sobre la foto (salir de pantalla completa) tienen
+    // que recibir su click: el preventDefault de más abajo lo cancelaría.
+    if (e.target.closest("button, label")) return;
+    if (S.editing || !S.hasImage) return;
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    const uv = uvFromEvent(e, stage);
+    const img = uvToImage(uv);
+    const rec = { startUv: uv, t: performance.now(), moved: 0, grab: null,
+                  lastUv: uv, lastT: performance.now(), vx: 0, vy: 0 };
+    if (S.maskPainted && maskAt(img.x, img.y) > 0.12) {
+      rec.grab = grabStart(img.x, img.y, pointers.size >= 1 ? 0.19 : 0.24);
+    }
+    if (!rec.grab && pointers.size === 0) {
+      if (S.mode !== "jelly" && S.sensors !== "on") {
+        M.targetX = (uv.x - 0.5) * 2; M.targetY = (uv.y - 0.5) * 2; markDirty();
+      } else if (S.mode === "jelly" && !S.maskPainted && performance.now() - hintAt > 4000) {
+        hintAt = performance.now();
+        toast("No hay zona todavía: subí Cobertura o pintala con el pincel.");
+      }
+    }
+    pointers.set(e.pointerId, rec);
+    if (e.cancelable) e.preventDefault();
+  });
+
+  stage.addEventListener("pointermove", (e) => {
+    const rec = pointers.get(e.pointerId);
+    if (S.editing || !rec) return;
+    const uv = uvFromEvent(e, stage);
+    rec.moved += Math.hypot(uv.x - rec.startUv.x, uv.y - rec.startUv.y);
+    if (rec.grab) {
+      // velocidad del dedo, suavizada: es la que se le pasa al material al soltar
+      const now = performance.now(), dt = (now - rec.lastT) / 1000;
+      if (dt > 0.004) {
+        const ivx = (uv.x - rec.lastUv.x) / ZOOM / dt, ivy = (uv.y - rec.lastUv.y) / ZOOM / dt;
+        const a = dt < 0.09 ? 0.55 : 1;   // una pausa larga borra el envión viejo
+        rec.vx = lerp(rec.vx, ivx, a); rec.vy = lerp(rec.vy, ivy, a);
+        rec.lastUv = uv; rec.lastT = now;
+      }
+      grabMove(rec.grab, (uv.x - rec.startUv.x) / ZOOM, (uv.y - rec.startUv.y) / ZOOM);
+    } else if (pointers.size === 1 && S.mode !== "jelly" && S.sensors !== "on") {
+      M.targetX = (uv.x - 0.5) * 2; M.targetY = (uv.y - 0.5) * 2;
+      markDirty();
+    }
+  });
+
+  const endTouch = (e) => {
+    const rec = pointers.get(e.pointerId);
+    if (!rec) return;
+    pointers.delete(e.pointerId);
+    if (rec.grab) {
+      // si el dedo se quedó quieto antes de levantarse, no hay envión
+      const quieto = performance.now() - rec.lastT > 130;
+      grabEnd(rec.grab, quieto ? 0 : rec.vx, quieto ? 0 : rec.vy);
+    }
+    if (!pointers.size && S.sensors !== "on") { M.targetX = 0; M.targetY = 0; markDirty(); }
+  };
+  stage.addEventListener("pointerup", endTouch);
+  stage.addEventListener("pointercancel", endTouch);
+  stage.addEventListener("lostpointercapture", endTouch);
+  stage.addEventListener("contextmenu", (e) => e.preventDefault());
+  pc.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+
+/* ==================================================================
+   Sensores del teléfono
+   ================================================================== */
+const SENS = { ref: null, gravX: 0, gravY: 0, gotOrient: false, gotMotion: false, lastKick: 0,
+               hasTilt: false, gvx: 0, gvy: 0, tilt: 0, mag: 0, peak: 0, timer: 0 };
+
+function onOrient(e) {
+  if (e.beta === null || e.gamma === null) return;
+  SENS.gotOrient = true;
+  if (!SENS.ref) SENS.ref = { b: e.beta, g: e.gamma };
+  // el marco de referencia se re-centra muy despacio: no queda trabado torcido
+  SENS.ref.b = lerp(SENS.ref.b, e.beta, 0.003);
+  SENS.ref.g = lerp(SENS.ref.g, e.gamma, 0.003);
+  M.targetX = clamp((e.gamma - SENS.ref.g) / 20, -1, 1);
+  M.targetY = clamp((e.beta - SENS.ref.b) / 20, -1, 1);
+
+  // Gravedad proyectada sobre el plano de la pantalla: acostado da (0,0),
+  // parado da (0,1) hacia abajo, inclinado a la derecha da (+,·).
+  const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
+  SENS.gvx = Math.sin(g);
+  SENS.gvy = Math.sin(b) * Math.cos(g);
+  SENS.hasTilt = true;
+  SENS.tilt = Math.round(Math.hypot(e.beta || 0, e.gamma || 0));
+  if (S.gravFollow) wakePhysics();
+}
+
+function onMotion(e) {
+  SENS.gotMotion = true;
+  let ax = 0, ay = 0;
+  const a = e.acceleration;
+  if (a && a.x !== null && a.x !== undefined) { ax = a.x || 0; ay = a.y || 0; }
+  else {
+    const g = e.accelerationIncludingGravity;
+    if (!g || g.x === null) return;
+    SENS.gravX = lerp(SENS.gravX, g.x || 0, 0.06);
+    SENS.gravY = lerp(SENS.gravY, g.y || 0, 0.06);
+    ax = (g.x || 0) - SENS.gravX; ay = (g.y || 0) - SENS.gravY;
+  }
+  const mag0 = Math.hypot(ax, ay);
+  SENS.mag = mag0;
+  if (mag0 > SENS.peak) SENS.peak = mag0;
+  if (!S.maskPainted) return;
+  // Rango más alto que antes: con la amplitud baja que pide la carne, la
+  // escala vieja movía menos de medio por ciento de la foto y no se veía.
+  const scale = 0.0015 + (S.p.sens / 100) * 0.0085;
+  // el contenido se queda atrás respecto del teléfono: de ahí el signo en X
+  setDrive(clamp(-ax * scale, -0.055, 0.055), clamp(ay * scale, -0.055, 0.055));
+  const now = performance.now();
+  if (mag0 > 9 && now - SENS.lastKick > 300) {
+    SENS.lastKick = now;
+    kick(0.35 + Math.min(0.45, mag0 / 45), Math.atan2(ay, -ax));
+  }
+}
+
+/* Un renglón con lo que está llegando de verdad. Sin esto, "no me andan los
+   sensores" no se puede distinguir de "el permiso está dado pero el teléfono
+   está quieto". */
+function sensorReadout() {
+  const el = $("#sensorLive");
+  if (!el) return;
+  if (S.sensors !== "on") { el.hidden = true; return; }
+  el.hidden = false;
+  if (!SENS.gotOrient && !SENS.gotMotion) { el.textContent = "esperando datos del teléfono…"; return; }
+  const g = (SENS.peak / 9.81).toFixed(2).replace(".", ",");
+  SENS.peak = SENS.peak * 0.55;
+  el.textContent = "inclinación " + SENS.tilt + "°  ·  sacudida " + g + " g" +
+    (S.gravFollow ? "  ·  gravedad del teléfono" : "");
+}
+
+/* Última carta cuando estamos incrustados: abrir esta misma página en una
+   pestaña propia. Ahí ya es de primer nivel y iOS sí pregunta por el
+   giroscopio. Si el contenedor bloquea los emergentes, se avisa. */
+function openOwnTab() {
+  let w = null;
+  try { w = window.open(location.href, "_blank", "noopener"); } catch (e) { w = null; }
+  if (!w) {
+    try {
+      const a = document.createElement("a");
+      a.href = location.href; a.target = "_blank"; a.rel = "noopener";
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) {}
+  }
+  setTimeout(() => {
+    toast(w ? "Activá los sensores en la pestaña nueva."
+            : "El contenedor bloquea las pestañas nuevas. Copiá la dirección de abajo y pegala en Safari.", !w);
+  }, 350);
+}
+
+function copyOwnUrl() {
+  const el = $("#ownUrl");
+  el.focus();
+  el.setSelectionRange(0, el.value.length);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  if (!ok && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(el.value).then(
+      () => toast("Dirección copiada. Pegala en Safari."),
+      () => toast("No pude copiar. Mantené apretado el campo y copiá a mano.", true));
+    return;
+  }
+  toast(ok ? "Dirección copiada. Pegala en Safari."
+           : "No pude copiar. Mantené apretado el campo y copiá a mano.", !ok);
+}
+
+function setSensorChip(state, label) {
+  const chip = $("#btnSensors");
+  chip.classList.toggle("on", state === "on");
+  chip.classList.toggle("warn", state === "denied" || state === "nodata");
+  $("#sensorLabel").textContent = label;
+}
+
+async function enableSensors() {
+  const DM = window.DeviceMotionEvent, DO = window.DeviceOrientationEvent;
+  if (!DM && !DO) {
+    S.sensors = "unsupported";
+    setSensorChip("denied", "Sin sensores");
+    toast("Este navegador no expone los sensores. Movés la foto con el dedo.", true);
+    return;
+  }
+  if (!window.isSecureContext && location.protocol !== "file:") {
+    S.sensors = "denied";
+    setSensorChip("denied", "Hace falta HTTPS");
+    toast("El iPhone sólo entrega los sensores por HTTPS.", true);
+    return;
+  }
+  try {
+    // Las dos preguntas salen en el MISMO gesto: iOS descarta el permiso si
+    // la segunda llega después de un await, y ahí el giroscopio quedaba mudo
+    // aunque el acelerómetro hubiera dicho que sí.
+    const pend = [];
+    if (DM && typeof DM.requestPermission === "function") pend.push(DM.requestPermission());
+    if (DO && typeof DO.requestPermission === "function") pend.push(DO.requestPermission());
+    const res = await Promise.all(pend);
+    const granted = res.length === 0 || res.some((r) => r === "granted");
+    if (!granted) {
+      S.sensors = "denied";
+      setSensorChip("denied", "Permiso denegado");
+      toast("Sin permiso de movimiento. Recargá la página para que iOS vuelva a preguntar.", true);
+      return;
+    }
+  } catch (err) {
+    S.sensors = "denied";
+    setSensorChip("denied", "Bloqueado acá");
+    $("#framedNote").hidden = false;
+    toast("Acá adentro el iPhone no deja pedir los sensores. Abrilo en pestaña propia.", true);
+    return;
+  }
+  window.addEventListener("deviceorientation", onOrient);
+  window.addEventListener("devicemotion", onMotion);
+  S.sensors = "on";
+  setSensorChip("on", "Sensores activos");
+  $("#framedNote").hidden = true;
+  clearInterval(SENS.timer);
+  SENS.timer = setInterval(sensorReadout, 200);
+  sensorReadout();
+  toast("Sensores activos. Incliná el teléfono y sacudilo.");
+  setTimeout(() => {
+    if (S.sensors === "on" && !SENS.gotOrient && !SENS.gotMotion) {
+      S.sensors = "nodata";
+      setSensorChip("nodata", "Sin datos");
+      $("#framedNote").hidden = false;
+      $("#sensorLive").hidden = true;
+      clearInterval(SENS.timer);
+      window.removeEventListener("deviceorientation", onOrient);
+      window.removeEventListener("devicemotion", onMotion);
+      toast("El permiso salió bien, pero acá adentro no llega ningún dato.", true);
+    }
+  }, 2000);
+}
+
+/* ==================================================================
+   Guardado local (IndexedDB: todo se queda en este teléfono)
+   ================================================================== */
+const DB_NAME = "foto-gelatina", DB_STORE = "proyectos";
+function idb() {
+  return new Promise((ok, no) => {
+    let rq;
+    try { rq = indexedDB.open(DB_NAME, 1); } catch (e) { no(e); return; }
+    rq.onupgradeneeded = () => { rq.result.createObjectStore(DB_STORE, { keyPath: "id" }); };
+    rq.onsuccess = () => ok(rq.result);
+    rq.onerror = () => no(rq.error);
+  });
+}
+async function dbAll() {
+  try {
+    const db = await idb();
+    return await new Promise((ok, no) => {
+      const rq = db.transaction(DB_STORE).objectStore(DB_STORE).getAll();
+      rq.onsuccess = () => ok(rq.result.sort((a, b) => b.ts - a.ts));
+      rq.onerror = () => no(rq.error);
+    });
+  } catch (e) { return []; }
+}
+async function dbPut(rec) {
+  const db = await idb();
+  return new Promise((ok, no) => {
+    const tx = db.transaction(DB_STORE, "readwrite");
+    tx.objectStore(DB_STORE).put(rec);
+    tx.oncomplete = ok; tx.onerror = () => no(tx.error);
+  });
+}
+async function dbDel(id) {
+  const db = await idb();
+  return new Promise((ok) => {
+    const tx = db.transaction(DB_STORE, "readwrite");
+    tx.objectStore(DB_STORE).delete(id);
+    tx.oncomplete = ok; tx.onerror = ok;
+  });
+}
+
+function toBlob(canvas, type, q) {
+  return new Promise((ok) => { canvas.toBlob ? canvas.toBlob(ok, type, q) : ok(null); });
+}
+
+async function saveProject() {
+  if (!S.hasImage) { toast("Primero cargá una foto.", true); return; }
+  try {
+    const blob = await toBlob(S.imgCanvas, "image/jpeg", 0.88);
+    if (!blob) { toast("Este navegador no pudo preparar la foto para guardar.", true); return; }
+    const th = document.createElement("canvas");
+    th.width = 180; th.height = 180;
+    const k = Math.max(180 / S.iw, 180 / S.ih);
+    th.getContext("2d").drawImage(S.imgCanvas, (180 - S.iw * k) / 2, (180 - S.ih * k) / 2, S.iw * k, S.ih * k);
+    const rec = {
+      id: "p" + Date.now(), ts: Date.now(),
+      name: new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "short" }) + " · " +
+            new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+      blob, thumb: th.toDataURL("image/jpeg", 0.7),
+      dw: S.dw, dh: S.dh, mw: S.mw, mh: S.mh,
+      depthBase: f32ToBytes(S.depth), mask: f32ToBytes(S.mask), rigid: f32ToBytes(S.rigid),
+      p: Object.assign({}, S.p), preset: S.preset, gx: S.gx, gy: S.gy, gravFollow: S.gravFollow,
+    };
+    await dbPut(rec);
+    toast("Proyecto guardado en este teléfono.");
+    renderSaved();
+  } catch (e) {
+    toast("No se pudo guardar: el navegador no dio espacio.", true);
+  }
+}
+
+async function openProject(rec) {
+  const im = new Image();
+  const url = URL.createObjectURL(rec.blob);
+  im.src = url;
+  try { await (im.decode ? im.decode() : Promise.resolve()); } catch (e) {}
+  S.imgCanvas = fitCanvas(im, TEXMAX);
+  S.iw = S.imgCanvas.width; S.ih = S.imgCanvas.height;
+  URL.revokeObjectURL(url);
+
+  S.dw = rec.dw; S.dh = rec.dh; S.mw = rec.mw; S.mh = rec.mh;
+  S.depth = new Float32Array(rec.dw * rec.dh);
+  S.mask = new Float32Array(rec.mw * rec.mh);
+  S.rigid = new Float32Array(rec.mw * rec.mh);
+  for (let i = 0; i < S.depth.length; i++) S.depth[i] = rec.depthBase[i] / 255;
+  for (let i = 0; i < S.mask.length; i++) {
+    S.mask[i] = rec.mask[i] / 255;
+    S.rigid[i] = rec.rigid ? rec.rigid[i] / 255 : 0;
+  }
+  S.gray = null; S.maskSoft = null; S.rigidSoft = null; S.maskDirty = true;
+  S.hasImage = true;
+  S.preset = rec.preset || "jelly";
+  S.gx = rec.gx || 0; S.gy = rec.gy || 0; S.gravFollow = !!rec.gravFollow;
+  Object.assign(S.p, rec.p || {});
+  syncControls();
+  gl_setImage(S.imgCanvas);
+  finishStroke();
+  physicsReset();
+  const stage = $("#stage");
+  stage.style.setProperty("--ar", S.iw + " / " + S.ih);
+  stage.classList.add("loaded");
+  sizeCanvases();
+  clearUndo();
+  paintOverlay();
+  closeSheet();
+  toast("Proyecto abierto.");
+}
+
+async function renderSaved() {
+  const grid = $("#savedGrid"), empty = $("#savedEmpty");
+  const rows = await dbAll();
+  grid.innerHTML = "";
+  empty.hidden = rows.length > 0;
+  rows.forEach((rec) => {
+    const fig = document.createElement("figure");
+    const img = document.createElement("img");
+    img.src = rec.thumb; img.alt = "";
+    const cap = document.createElement("figcaption");
+    cap.textContent = rec.name;
+    const del = document.createElement("button");
+    del.className = "del"; del.type = "button"; del.textContent = "×";
+    del.setAttribute("aria-label", "Borrar " + rec.name);
+    del.addEventListener("click", async (ev) => { ev.stopPropagation(); await dbDel(rec.id); renderSaved(); });
+    fig.appendChild(img); fig.appendChild(cap); fig.appendChild(del);
+    fig.addEventListener("click", () => openProject(rec));
+    grid.appendChild(fig);
+  });
+}
+
+function openSheet() { $("#sheet").classList.add("on"); $("#scrim").classList.add("on"); renderSaved(); }
+function closeSheet() { $("#sheet").classList.remove("on"); $("#scrim").classList.remove("on"); }
+
+/* ==================================================================
+   Exportación
+   ================================================================== */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
+
+function advanceMotion(dt, i, fps) {
+  if (S.recMotion === "jelly" && i % Math.round(fps * 1.1) === 0) {
+    kick(0.7, Math.PI * (0.35 + Math.random() * 0.6));
+  }
+  let acc = dt, guard = 0;
+  while (acc > 1 / 120 && guard++ < 12) { physicsStep(1 / 120); acc -= 1 / 120; }
+  physicsUpload();
+}
+
+/* ------------------------------------------------------------ GIF ------- */
+function makeBox(px, idx, start, end) {
+  let r0 = 255, g0 = 255, b0 = 255, r1 = 0, g1 = 0, b1 = 0;
+  for (let i = start; i < end; i++) {
+    const o = idx[i] * 3, r = px[o], g = px[o + 1], b = px[o + 2];
+    if (r < r0) r0 = r; if (r > r1) r1 = r;
+    if (g < g0) g0 = g; if (g > g1) g1 = g;
+    if (b < b0) b0 = b; if (b > b1) b1 = b;
+  }
+  const dr = r1 - r0, dg = g1 - g0, db = b1 - b0;
+  const axis = dr >= dg && dr >= db ? 0 : dg >= db ? 1 : 2;
+  return { start, end, axis, range: Math.max(dr, dg, db) * (end - start) };
+}
+
+function medianCut(px, maxColors) {
+  const n = px.length / 3;
+  const idx = new Uint32Array(n);
+  for (let i = 0; i < n; i++) idx[i] = i;
+  let boxes = [makeBox(px, idx, 0, n)];
+  while (boxes.length < maxColors) {
+    let bi = -1, best = -1;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (b.end - b.start < 2 || b.range <= 0) continue;
+      if (b.range > best) { best = b.range; bi = i; }
+    }
+    if (bi < 0) break;
+    const b = boxes[bi], ch = b.axis;
+    const sub = Array.from(idx.subarray(b.start, b.end));
+    sub.sort((a, c) => px[a * 3 + ch] - px[c * 3 + ch]);
+    for (let i = 0; i < sub.length; i++) idx[b.start + i] = sub[i];
+    const mid = b.start + (sub.length >> 1);
+    boxes.splice(bi, 1, makeBox(px, idx, b.start, mid), makeBox(px, idx, mid, b.end));
+  }
+  const pal = [];
+  for (const b of boxes) {
+    let r = 0, g = 0, bl = 0;
+    const cnt = Math.max(1, b.end - b.start);
+    for (let i = b.start; i < b.end; i++) { const o = idx[i] * 3; r += px[o]; g += px[o + 1]; bl += px[o + 2]; }
+    pal.push([r / cnt | 0, g / cnt | 0, bl / cnt | 0]);
+  }
+  return pal;
+}
+
+function lzwEncode(indices, minCodeSize) {
+  const clearCode = 1 << minCodeSize, eoi = clearCode + 1;
+  let codeSize = minCodeSize + 1, maxCode = (1 << codeSize) - 1, next = eoi + 1;
+  let dict = new Map();
+  const out = [];
+  let cur = 0, bits = 0;
+  function emit(code) {
+    cur |= code << bits; bits += codeSize;
+    while (bits >= 8) { out.push(cur & 255); cur >>= 8; bits -= 8; }
+    if (next > maxCode && codeSize < 12) { codeSize++; maxCode = (1 << codeSize) - 1; }
+  }
+  if (!indices.length) return out;
+  emit(clearCode);
+  let prefix = indices[0];
+  for (let i = 1; i < indices.length; i++) {
+    const k = indices[i];
+    const key = (prefix << 8) | k;
+    const found = dict.get(key);
+    if (found !== undefined) { prefix = found; continue; }
+    emit(prefix);
+    if (next < 4096) { dict.set(key, next); next++; }
+    else { emit(clearCode); dict = new Map(); next = eoi + 1; codeSize = minCodeSize + 1; maxCode = (1 << codeSize) - 1; }
+    prefix = k;
+  }
+  emit(prefix);
+  emit(eoi);
+  if (bits > 0) out.push(cur & 255);
+  return out;
+}
+
+function Bytes() { this.b = new Uint8Array(1 << 18); this.n = 0; }
+Bytes.prototype.put = function (v) {
+  if (this.n === this.b.length) { const nb = new Uint8Array(this.b.length * 2); nb.set(this.b); this.b = nb; }
+  this.b[this.n++] = v & 255;
+};
+Bytes.prototype.put16 = function (v) { this.put(v); this.put(v >> 8); };
+Bytes.prototype.str = function (s) { for (let i = 0; i < s.length; i++) this.put(s.charCodeAt(i)); };
+Bytes.prototype.done = function () { return this.b.subarray(0, this.n); };
+
+function gifBuild(frames, w, h, delayCs) {
+  const step = Math.max(1, Math.floor((w * h * frames.length) / 40000));
+  const samples = [];
+  for (const f of frames) {
+    for (let i = 0; i < w * h; i += step) { const o = i * 4; samples.push(f[o], f[o + 1], f[o + 2]); }
+  }
+  const pal = medianCut(Uint8Array.from(samples), 256);
+  while (pal.length < 2) pal.push([0, 0, 0]);
+  let bits = 1;
+  while ((1 << bits) < pal.length) bits++;
+  const tableLen = 1 << bits;
+
+  const cache = new Int16Array(32768).fill(-1);
+  function nearest(r, g, b) {
+    const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+    const hit = cache[key];
+    if (hit >= 0) return hit;
+    let bestI = 0, bestD = Infinity;
+    for (let i = 0; i < pal.length; i++) {
+      const p = pal[i], dr = r - p[0], dg = g - p[1], db = b - p[2];
+      const d = dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11;
+      if (d < bestD) { bestD = d; bestI = i; }
+    }
+    cache[key] = bestI;
+    return bestI;
+  }
+
+  const B = new Bytes();
+  B.str("GIF89a");
+  B.put16(w); B.put16(h);
+  B.put(0x80 | 0x70 | (bits - 1)); B.put(0); B.put(0);
+  for (let i = 0; i < tableLen; i++) { const p = pal[i] || [0, 0, 0]; B.put(p[0]); B.put(p[1]); B.put(p[2]); }
+  B.put(0x21); B.put(0xFF); B.put(0x0B); B.str("NETSCAPE2.0");
+  B.put(3); B.put(1); B.put16(0); B.put(0);
+
+  const minCode = Math.max(2, bits);
+  const idxBuf = new Uint8Array(w * h);
+  for (const f of frames) {
+    for (let i = 0, o = 0; i < w * h; i++, o += 4) idxBuf[i] = nearest(f[o], f[o + 1], f[o + 2]);
+    B.put(0x21); B.put(0xF9); B.put(0x04); B.put(0x04); B.put16(delayCs); B.put(0); B.put(0);
+    B.put(0x2C); B.put16(0); B.put16(0); B.put16(w); B.put16(h); B.put(0);
+    B.put(minCode);
+    const data = lzwEncode(idxBuf, minCode);
+    for (let i = 0; i < data.length;) {
+      const len = Math.min(255, data.length - i);
+      B.put(len);
+      for (let j = 0; j < len; j++) B.put(data[i + j]);
+      i += len;
+    }
+    B.put(0);
+  }
+  B.put(0x3B);
+  return new Blob([B.done().slice()], { type: "image/gif" });
+}
+
+/* --------------------------------------------------------- grabación ---- */
+let lastExport = null;
+
+function pickMime() {
+  if (!window.MediaRecorder) return null;
+  const c = ["video/mp4;codecs=avc1.42E01E", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  for (const m of c) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) {} }
+  return "";
+}
+
+function setProgress(v) {
+  const bar = $("#recProgress");
+  bar.hidden = v < 0;
+  if (v >= 0) bar.firstElementChild.style.width = Math.round(v * 100) + "%";
+}
+
+async function recordVideo(dur) {
+  const cv = $("#gl");
+  if (!cv.captureStream || !window.MediaRecorder) { toast("Este navegador no puede grabar video. Probá con GIF.", true); return null; }
+  const mime = pickMime();
+  const stream = cv.captureStream(30);
+  let mr;
+  try { mr = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : {}); }
+  catch (e) { toast("Este navegador no puede grabar video. Probá con GIF.", true); return null; }
+  const chunks = [];
+  mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  const done = new Promise((ok) => { mr.onstop = ok; });
+  const only = S.recMotion === "jelly";
+  if (only) kick(0.7, Math.PI / 2);
+  mr.start(100);
+  const t0 = performance.now();
+  let lastKickAt = -9;
+  while (performance.now() - t0 < dur * 1000) {
+    const el = (performance.now() - t0) / 1000;
+    setProgress(el / dur);
+    if (only && el - lastKickAt > 1.1) { lastKickAt = el; kick(0.7, Math.PI * (0.35 + Math.random() * 0.6)); }
+    await nextFrame();
+  }
+  mr.stop();
+  await done;
+  setProgress(-1);
+  const type = (mime || "video/webm").split(";")[0];
+  return { blob: new Blob(chunks, { type }), ext: type.indexOf("mp4") >= 0 ? "mp4" : "webm", kind: "video" };
+}
+
+async function recordGif(dur) {
+  const fps = 12;
+  const count = Math.min(60, Math.round(dur * fps));
+  const cv = $("#gl");
+  const gw = 320, gh = Math.max(2, Math.round(320 * cv.height / cv.width) & ~1);
+  const tmp = document.createElement("canvas");
+  tmp.width = gw; tmp.height = gh;
+  const tctx = tmp.getContext("2d", { willReadFrequently: true });
+  const frames = [];
+  M.capture = true;
+  M.orbitT = 0;
+  for (let i = 0; i < count; i++) {
+    advanceMotion(1 / fps, i, fps);
+    drawScene();
+    tctx.drawImage(cv, 0, 0, gw, gh);
+    frames.push(tctx.getImageData(0, 0, gw, gh).data);
+    setProgress((i + 1) / count * 0.6);
+    await nextFrame();
+  }
+  M.capture = false;
+  setProgress(0.65);
+  await sleep(16);
+  const blob = gifBuild(frames, gw, gh, Math.round(100 / fps));
+  setProgress(-1);
+  return { blob, ext: "gif", kind: "gif" };
+}
+
+function showExport(res) {
+  lastExport = res;
+  const slot = $("#previewSlot");
+  slot.innerHTML = "";
+  const url = URL.createObjectURL(res.blob);
+  if (res.kind === "gif") {
+    const img = document.createElement("img");
+    img.src = url; img.alt = "Vista previa del GIF";
+    slot.appendChild(img);
+  } else {
+    const v = document.createElement("video");
+    v.src = url; v.controls = true; v.loop = true; v.muted = true;
+    v.playsInline = true; v.setAttribute("playsinline", ""); v.autoplay = true;
+    slot.appendChild(v);
+    v.play().catch(() => {});
+  }
+  $("#recStat").textContent = (res.blob.size / 1048576).toFixed(1) + " MB · " + res.ext.toUpperCase();
+  $("#preview").classList.add("on");
+}
+
+async function downloadExport() {
+  if (!lastExport) return;
+  const name = "foto-gelatina-" + Date.now() + "." + lastExport.ext;
+  let dl = null;
+  try { dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { dl = null; }
+  if (dl) {
+    try { await dl.save({ filename: name, data: lastExport.blob }); toast("Listo, guardado."); return; }
+    catch (err) {
+      const code = err && err.code;
+      if (code === "declined") return;
+      if (code === "too_large") { toast("El archivo pasa los 16 MB. Bajá la duración y grabá de nuevo.", true); return; }
+      toast("No se pudo guardar el archivo acá.", true);
+      return;
+    }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(lastExport.blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  toast("Si no se descargó, mantené apretada la vista previa para guardarla.");
+}
+
+/* ==================================================================
+   Controles
+   ================================================================== */
+/* Un solo deslizador para los dos pinceles: cambia de nombre y de valor
+   según cuál esté activo, porque son magnitudes distintas. */
+function refreshFlow() {
+  const b = S.brushJ;
+  const el = $("#sFlow"), out = $("#oFlow");
+  $("#flowLabel").textContent = b === "rigid" ? "Rigidez del pincel"
+    : b === "erase" ? "Bajar hasta" : "Movimiento del pincel";
+  el.value = b === "rigid" ? S.p.rflow : b === "erase" ? S.p.eflow : S.p.flow;
+  out.textContent = el.value + "%";
+  el.parentElement.parentElement.style.setProperty("--accent",
+    b === "rigid" ? "var(--rigid)" : b === "erase" ? "var(--txt-dim)" : "var(--jelly)");
+}
+
+function refreshGravity() {
+  const pad = $("#gravPad");
+  $("#btnGravFollow").setAttribute("aria-pressed", String(S.gravFollow));
+  pad.classList.toggle("off", S.gravFollow);
+  $$("#gravPad button").forEach((b) => {
+    const [x, y] = b.dataset.g.split(",").map(Number);
+    b.setAttribute("aria-pressed", String(!S.gravFollow && x === S.gx && y === S.gy));
+  });
+  const dirs = { "0,0": "sin gravedad", "0,1": "cuelga hacia abajo", "0,-1": "flota hacia arriba",
+                 "-1,0": "cae a la izquierda", "1,0": "cae a la derecha",
+                 "-1,-1": "hacia arriba-izquierda", "1,-1": "hacia arriba-derecha",
+                 "-1,1": "hacia abajo-izquierda", "1,1": "hacia abajo-derecha" };
+  $("#gravStat").textContent = S.gravFollow
+    ? "según cómo tengas el teléfono"
+    : (S.p.grav === 0 ? "sin gravedad" : dirs[S.gx + "," + S.gy] || "sin gravedad");
+}
+
+function syncControls() {
+  const map = { sStiff: "stiff", sBounce: "bounce", sAmp: "amp", sSens: "sens", sDur: "dur", sGrav: "grav", sTouch: "touch", sShade: "shade" };
+  for (const id in map) {
+    const el = document.getElementById(id);
+    if (el) { el.value = S.p[map[id]]; el.dispatchEvent(new Event("input")); }
+  }
+  refreshGravity();
+  refreshFlow();
+}
+
+function bindSlider(id, key, fmt) {
+  const el = $("#" + id), out = $("#o" + id.slice(1));
+  const upd = () => {
+    S.p[key] = +el.value;
+    if (out) out.textContent = fmt ? fmt(+el.value) : el.value;
+    markDirty();
+  };
+  el.addEventListener("input", upd);
+  upd();
+}
+
+function bindSeg(id, apply) {
+  const el = $("#" + id);
+  if (!el) return;
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    $$("#" + id + " button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    apply(b.dataset.v || b.dataset.p);
+    markDirty();
+  });
+}
+
+function setMode(m) {
+  S.mode = m;
+  $$(".modes button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.m === m)));
+  $$(".panel").forEach((p) => p.classList.toggle("on", p.dataset.m === m));
+  const tg = $("#stageToggle");
+  tg.hidden = m === "rec";
+  tg.className = "stage-toggle m-" + m;
+  if (m === "rec" && S.editing) setEditing(false);
+  clearUndo();
+  paintOverlay();
+  markDirty();
+}
+
+/* En el iPhone no existe fullscreen para elementos que no sean video, así
+   que el modo inmersivo es propio: se esconde el chrome y el escenario se
+   fija a la ventana. Si el navegador sí tiene la API, se pide además. */
+function setImmersive(on) {
+  S.immersive = on;
+  if (on) setEditing(false);
+  document.querySelector(".app").classList.toggle("immersive", on);
+  $("#btnExitFull").hidden = !on;
+  try {
+    if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else if (!on && document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  } catch (e) {}
+  sizeCanvases();
+  markDirty();
+  if (on) toast("Tocá la foto para hundirla, o agarrala y arrastrala.");
+}
+
+function setEditing(on) {
+  S.editing = on && S.mode !== "rec" && S.hasImage;
+  $("#stage").classList.toggle("editing", S.editing);
+  $$("#segEdit button").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.v === "brush") === S.editing)));
+  $("#badgeMode").hidden = !S.editing;
+  $("#badgeMode").textContent = "Pintando la zona viva";
+  if (!S.editing) { brushPos = null; resetView(); }
+  refreshZoomBadge();
+  refreshUndo();
+  paintOverlay();
+  markDirty();
+}
+
+function bindUI() {
+  $$(".modes button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.m)));
+  $("#segEdit").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (!S.hasImage) { toast("Primero cargá una foto.", true); return; }
+    setEditing(b.dataset.v === "brush");
+  });
+  ["file", "file2"].forEach((id) => {
+    $("#" + id).addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) loadFile(f);
+      e.target.value = "";
+    });
+  });
+
+  bindSlider("sBrushJ", "brushJ");
+  bindSlider("sStiff", "stiff");
+  bindSlider("sBounce", "bounce");
+  bindSlider("sAmp", "amp");
+  bindSlider("sSens", "sens");
+  bindSlider("sShade", "shade");
+  bindSlider("sTouch", "touch", (v) => (v < 18 ? "yema" : v < 45 ? "dedo" : v < 75 ? "pulgar" : "mano"));
+  bindSlider("sDur", "dur", (v) => (v / 10).toFixed(1).replace(".", ",") + " s");
+  $("#sFlow").addEventListener("input", (e) => {
+    const v = +e.target.value;
+    if (S.brushJ === "rigid") S.p.rflow = v;
+    else if (S.brushJ === "erase") S.p.eflow = v;
+    else S.p.flow = v;
+    $("#oFlow").textContent = v + "%";
+  });
+  bindSlider("sGrav", "grav");
+  $("#sGrav").addEventListener("input", () => { refreshGravity(); wakePhysics(); });
+
+  // Cobertura: mientras se mueve la barra se ve la zona encima de la foto.
+  let autoHide = 0, autoUndone = false;
+  const sAuto = $("#sAuto");
+  sAuto.addEventListener("pointerdown", () => { autoUndone = false; });
+  sAuto.addEventListener("input", (e) => {
+    if (!S.hasImage) return;
+    if (!autoUndone) { pushUndo("mask"); autoUndone = true; }
+    S.p.auto = +e.target.value;
+    $("#oAuto").textContent = S.p.auto;
+    S.previewMask = true;
+    $("#stage").classList.add("previewing");
+    applyAutoMask(S.p.auto);
+    clearTimeout(autoHide);
+    autoHide = setTimeout(() => {
+      if (S.viewAuto) return;
+      S.previewMask = false;
+      $("#stage").classList.remove("previewing");
+      paintOverlay();
+    }, 1100);
+  });
+
+  $("#btnAuto").addEventListener("click", () => {
+    if (!S.hasImage) return;
+    pushUndo("mask");
+    computeAutoField();
+    applyAutoMask(S.p.auto);
+    toast("Zona recalculada.");
+  });
+
+  $("#btnViewAuto").addEventListener("click", (e) => {
+    S.viewAuto = !S.viewAuto;
+    S.previewMask = S.viewAuto;
+    e.currentTarget.setAttribute("aria-pressed", String(S.viewAuto));
+    e.currentTarget.textContent = S.viewAuto ? "Ocultar zona" : "Ver zona";
+    $("#stage").classList.toggle("previewing", S.viewAuto);
+    paintOverlay();
+  });
+  $("#sFlow").addEventListener("input", paintOverlay);
+  $("#sBrushJ").addEventListener("input", paintOverlay);
+
+  bindSeg("segJelly", (v) => { S.brushJ = v; refreshFlow(); paintOverlay(); });
+  bindSeg("segFormat", (v) => { S.format = v; });
+  bindSeg("segMotion", (v) => { S.recMotion = v; });
+  $("#gravPad").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    const [x, y] = b.dataset.g.split(",").map(Number);
+    S.gx = x; S.gy = y;
+    if (x === 0 && y === 0) S.p.grav = 0;
+    else if (S.p.grav === 0) S.p.grav = 45;
+    S.gravFollow = false;
+    syncControls();
+    refreshGravity();
+    wakePhysics();
+  });
+
+  $("#btnGravFollow").addEventListener("click", (e) => {
+    S.gravFollow = !S.gravFollow;
+    if (S.gravFollow && S.p.grav === 0) { S.p.grav = 45; syncControls(); }
+    refreshGravity();
+    wakePhysics();
+    if (S.gravFollow && S.sensors !== "on") toast("Activá los sensores para que la gravedad siga al teléfono.", true);
+  });
+
+  $("#btnClearMask").addEventListener("click", () => {
+    if (!S.hasImage) return;
+    pushUndo("mask");
+    S.mask.fill(0); S.rigid.fill(0); S.maskSoft = null; S.rigidSoft = null;
+    S.maskPainted = false; S.maskDirty = true; S.p.auto = 0; syncControls();
+    gl_setMask(S.mask, S.mw, S.mh);
+    sampleMaskToGrid(S.mask); physicsReset();
+    $("#maskStat").textContent = "sin pintar";
+    paintOverlay();
+  });
+  $("#btnAllMask").addEventListener("click", () => {
+    if (!S.hasImage) return;
+    pushUndo("mask");
+    S.mask.fill(1); S.maskDirty = true;
+    finishStroke(); paintOverlay();
+    toast("Toda la foto se mueve como una sola masa.");
+  });
+
+  $("#btnShake").addEventListener("click", () => {
+    if (!S.hasImage) { toast("Primero cargá una foto.", true); return; }
+    if (!S.maskPainted) { toast("Pintá primero la zona que querés que tiemble.", true); return; }
+    if (S.editing) setEditing(false);
+    kick(0.75, Math.PI / 2 + (Math.random() - 0.5) * 0.6);
+  });
+
+  $("#btnUndo").addEventListener("click", undo);
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+  });
+
+  $("#btnFull").addEventListener("click", () => {
+    if (!S.hasImage) { toast("Primero cargá una foto.", true); return; }
+    setImmersive(true);
+  });
+  $("#btnExitFull").addEventListener("click", () => setImmersive(false));
+  $("#zoomBadge").addEventListener("click", resetView);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.immersive) setImmersive(false); });
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && S.immersive) setImmersive(false);
+  });
+
+  $("#btnSensors").addEventListener("click", enableSensors);
+  $("#btnOwnTab").addEventListener("click", openOwnTab);
+  $("#btnCopyUrl").addEventListener("click", copyOwnUrl);
+  $("#btnLibrary").addEventListener("click", openSheet);
+  $("#btnCloseSheet").addEventListener("click", closeSheet);
+  $("#scrim").addEventListener("click", closeSheet);
+  $("#btnSave").addEventListener("click", saveProject);
+  $("#btnDownload").addEventListener("click", downloadExport);
+
+  $("#btnRec").addEventListener("click", async () => {
+    if (!S.hasImage) { toast("Primero cargá una foto.", true); return; }
+    const btn = $("#btnRec");
+    btn.disabled = true;
+    setEditing(false);
+    S.recording = true;
+    $("#badgeRec").hidden = false;
+    $("#preview").classList.remove("on");
+    const dur = S.p.dur / 10;
+    try {
+      const res = S.format === "gif" ? await recordGif(dur) : await recordVideo(dur);
+      if (S.format === "gif" && S.recMotion === "jelly" && !S.maskPainted) toast("Pintá una zona en Gelatina, si no el clip sale quieto.", true);
+    if (res && res.blob && res.blob.size > 0) showExport(res);
+      else if (res) toast("La grabación salió vacía. Probá con GIF.", true);
+    } catch (e) {
+      toast("Falló la grabación: " + (e && e.message ? e.message : "error"), true);
+    }
+    S.recording = false;
+    $("#badgeRec").hidden = true;
+    setProgress(-1);
+    btn.disabled = false;
+  });
+
+  // Arrastrar una foto a cualquier parte de la ventana. El contador de
+  // entradas evita que el resalte parpadee al pasar por elementos anidados.
+  let dragDepth = 0;
+  const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf("Files") >= 0;
+  const setDrop = (on) => $("#stage").classList.toggle("dropping", on);
+
+  document.addEventListener("dragenter", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    setDrop(true);
+  });
+  document.addEventListener("dragover", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  });
+  document.addEventListener("dragleave", (e) => {
+    if (!hasFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) setDrop(false);
+  });
+  document.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    setDrop(false);
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    let f = dt.files && dt.files[0];
+    if (!f && dt.items) {
+      for (const it of dt.items) {
+        if (it.kind === "file") { const g = it.getAsFile(); if (g) { f = g; break; } }
+      }
+    }
+    if (f) loadFile(f);
+    else toast("Eso no era un archivo de imagen.", true);
+  });
+
+  // Pegar desde el portapapeles, que es el otro gesto natural en la compu.
+  document.addEventListener("paste", (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type && it.type.indexOf("image/") === 0) {
+        const f = it.getAsFile();
+        if (f) { loadFile(f); e.preventDefault(); return; }
+      }
+    }
+  });
+}
+
+/* ==================================================================
+   Arranque
+   ================================================================== */
+function init() {
+  if (!gl_init()) return;
+  bindUI();
+  bindStage();
+  setMode("jelly");
+  setEditing(false);
+  refreshGravity();
+  sizeCanvases();
+  window.addEventListener("resize", sizeCanvases);
+  if (window.ResizeObserver) new ResizeObserver(sizeCanvases).observe($("#stage"));
+  // Incrustado siempre se avisa, con la salida a mano: el aviso vale para
+  // cualquier teléfono, no sólo para el iPhone.
+  setSensorChip("off", "Activar sensores");
+  if (FRAMED) { $("#framedNote").hidden = false; $("#ownUrl").value = location.href; }
+  requestAnimationFrame(frame);
+  renderSaved();
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();
+</script>
+</body></html>
