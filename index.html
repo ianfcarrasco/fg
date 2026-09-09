@@ -208,7 +208,7 @@ button{cursor:pointer;border:none;background:none}
 .btn .led{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 
 /* ---------- bandeja de controles ---------- */
-.tray{margin-top:14px;padding:0 14px 34px;display:flex;flex-direction:column;gap:14px}
+.tray{--accent:var(--jelly);margin-top:14px;padding:0 14px 34px;display:flex;flex-direction:column;gap:14px}
 .modes{
   display:grid;grid-template-columns:repeat(2,1fr);gap:3px;
   padding:3px;background:var(--ink-2);border:1px solid var(--line);border-radius:var(--r);
@@ -318,6 +318,27 @@ input[type=range]::-moz-range-thumb{
 .preview video,.preview img{width:100%;border-radius:var(--r);border:1px solid var(--line);background:#000;display:block}
 .progress{height:3px;background:var(--ink-3);border-radius:2px;overflow:hidden}
 .progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .12s linear}
+
+/* Cajón lateral: física, gravedad y grabación viven acá, para que la
+   pantalla principal quede sólo con la foto y el pincel. */
+.drawer{
+  --accent:var(--jelly);
+  position:fixed;top:0;right:0;bottom:0;z-index:70;
+  width:min(94vw,404px);background:var(--ink-2);
+  border-left:1px solid var(--line-2);
+  transform:translateX(101%);transition:transform .26s cubic-bezier(.3,.8,.3,1);
+  overflow:auto;-webkit-overflow-scrolling:touch;
+  padding:16px 14px calc(40px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;gap:16px;
+  box-shadow:-24px 0 60px #00000080;
+}
+.drawer.on{transform:translateX(0)}
+#grpRec{--accent:var(--rec)}
+.drawer .sheet-head{position:sticky;top:-16px;background:var(--ink-2);padding:6px 0 12px;margin:-6px 0 0;z-index:2}
+.drawer .group-head{border-bottom-color:var(--line-2)}
+.btn[aria-pressed="true"] .led{background:var(--jelly);box-shadow:0 0 8px var(--jelly)}
+.btn[aria-pressed="false"] .led{background:var(--txt-faint);box-shadow:none}
+.ctl.off{opacity:.35;pointer-events:none}
 
 .sheet{
   position:fixed;inset:auto 0 0 0;z-index:50;background:var(--ink-2);
@@ -429,10 +450,7 @@ input[type=range]::-moz-range-thumb{
     </section>
 
     <section class="tray">
-      <nav class="modes two" role="tablist" aria-label="Modo de trabajo">
-        <button role="tab" data-m="jelly" aria-selected="true">Gelatina</button>
-        <button role="tab" data-m="rec" aria-selected="false">Grabar</button>
-      </nav>
+      <p class="lede">Pintá la zona en <b>Pincel</b>. En <b>Probar</b>: un dedo hunde, dos pellizcan, y si agarrás y arrastrás se queda estirada hasta que soltás. Dos manchas separadas se mueven cada una por su cuenta.</p>
 
       <div class="note alert" id="framedNote" hidden>
         <p><b>El iPhone no da los sensores acá adentro.</b> Apple sólo se los entrega a una pestaña propia de Safari, nunca a una página incrustada como ésta. No es algo que se pueda arreglar desde el código.</p>
@@ -446,135 +464,141 @@ input[type=range]::-moz-range-thumb{
       </div>
       <p class="note live" id="sensorLive" hidden></p>
 
-      <!-- ============ GELATINA ============ -->
-      <div class="panel on" data-m="jelly" role="tabpanel">
-        <p class="lede">Pintá la zona en <b>Pincel</b>. En <b>Probar</b>: un dedo hunde, dos pellizcan, y si agarrás y arrastrás se queda estirada hasta que soltás. Dos manchas separadas se mueven cada una por su cuenta.</p>
-
-        <div class="group" id="grpAuto" hidden>
-          <div class="group-head"><span>Detección</span><span class="hint">movela para buscar el objeto</span></div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sAuto">Cobertura</label><output id="oAuto">0</output></div>
-            <input type="range" id="sAuto" min="0" max="100" value="0">
-          </div>
-          <div class="row">
-            <button class="btn" id="btnAuto">Detectar de nuevo</button>
-            <button class="btn ghost" id="btnViewAuto" aria-pressed="false">Ver zona</button>
-          </div>
+      <div class="group">
+        <div class="group-head"><span>Zona viva</span><span class="hint" id="maskStat">sin pintar</span></div>
+        <div class="seg" id="segJelly">
+          <button data-v="add" aria-pressed="true"><span class="swatch"></span>Mover</button>
+          <button data-v="rigid" aria-pressed="false"><span class="swatch"></span>Rígido</button>
+          <button data-v="erase" aria-pressed="false">Borrar</button>
         </div>
-
-        <div class="group">
-          <div class="group-head"><span>Zona viva</span><span class="hint" id="maskStat">sin pintar</span></div>
-          <div class="seg" id="segJelly">
-            <button data-v="add" aria-pressed="true"><span class="swatch"></span>Mover</button>
-            <button data-v="rigid" aria-pressed="false"><span class="swatch"></span>Rígido</button>
-            <button data-v="erase" aria-pressed="false">Borrar</button>
-          </div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sBrushJ">Tamaño</label><output id="oBrushJ">20</output></div>
-            <input type="range" id="sBrushJ" min="1" max="100" value="20">
-          </div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sFlow" id="flowLabel">Movimiento del pincel</label><output id="oFlow">100%</output></div>
-            <input type="range" id="sFlow" min="0" max="100" value="100">
-          </div>
-          <p class="note"><b>Mover</b> marca lo que tiembla. <b>Rígido</b> viaja con el temblor pero no se deforma, como una frutilla sobre el postre.</p>
-          <div class="row">
-            <button class="btn" id="btnClearMask">Limpiar</button>
-            <button class="btn" id="btnAllMask">Toda la foto</button>
-          </div>
+        <div class="ctl">
+          <div class="ctl-top"><label for="sBrushJ">Tamaño</label><output id="oBrushJ">20</output></div>
+          <input type="range" id="sBrushJ" min="1" max="100" value="20">
         </div>
-
-        <div class="group">
-          <div class="group-head"><span>Física</span></div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sStiff">Rigidez</label><output id="oStiff">31</output></div>
-            <input type="range" id="sStiff" min="0" max="100" value="31">
-          </div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sBounce">Rebote</label><output id="oBounce">65</output></div>
-            <input type="range" id="sBounce" min="0" max="100" value="65">
-          </div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sAmp">Amplitud</label><output id="oAmp">11</output></div>
-            <input type="range" id="sAmp" min="0" max="100" value="11">
-          </div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sSens">Sensibilidad al movimiento</label><output id="oSens">55</output></div>
-            <input type="range" id="sSens" min="0" max="100" value="55">
-          </div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sTouch">Tamaño del toque</label><output id="oTouch">pulgar</output></div>
-            <input type="range" id="sTouch" min="0" max="100" value="45">
-          </div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sShade">Sombra del hundido</label><output id="oShade">0</output></div>
-            <input type="range" id="sShade" min="0" max="100" value="0">
-          </div>
-          <p class="note">De la yema de un dedo a la mano entera. La sombra, si la subís, le da volumen al hoyo.</p>
+        <div class="ctl">
+          <div class="ctl-top"><label for="sFlow" id="flowLabel">Movimiento del pincel</label><output id="oFlow">100%</output></div>
+          <input type="range" id="sFlow" min="0" max="100" value="100">
         </div>
-
-        <div class="group">
-          <div class="group-head"><span>Gravedad</span><span class="hint" id="gravStat">cuelga hacia abajo</span></div>
-          <div class="gravrow">
-            <div class="gravpad" id="gravPad" role="group" aria-label="Dirección de la gravedad">
-              <button data-g="-1,-1" aria-pressed="false" aria-label="Arriba a la izquierda">↖</button>
-              <button data-g="0,-1" aria-pressed="false" aria-label="Arriba">↑</button>
-              <button data-g="1,-1" aria-pressed="false" aria-label="Arriba a la derecha">↗</button>
-              <button data-g="-1,0" aria-pressed="false" aria-label="Izquierda">←</button>
-              <button data-g="0,0" aria-pressed="false" aria-label="Sin gravedad">○</button>
-              <button data-g="1,0" aria-pressed="false" aria-label="Derecha">→</button>
-              <button data-g="-1,1" aria-pressed="false" aria-label="Abajo a la izquierda">↙</button>
-              <button data-g="0,1" aria-pressed="true" aria-label="Abajo">↓</button>
-              <button data-g="1,1" aria-pressed="false" aria-label="Abajo a la derecha">↘</button>
-            </div>
-            <div class="grow">
-              <div class="ctl">
-                <div class="ctl-top"><label for="sGrav">Peso</label><output id="oGrav">35</output></div>
-                <input type="range" id="sGrav" min="0" max="100" value="35">
-              </div>
-              <button class="btn" id="btnGravFollow" aria-pressed="false">Del teléfono</button>
-            </div>
-          </div>
-          <p class="note">El centro es sin gravedad. <b>Del teléfono</b> la saca de la inclinación real: acostado no pesa, parado cuelga.</p>
+        <p class="note"><b>Mover</b> marca lo que tiembla. <b>Rígido</b> viaja con el temblor pero no se deforma, como una frutilla sobre el postre.</p>
+        <div class="row">
+          <button class="btn" id="btnClearMask">Limpiar</button>
+          <button class="btn" id="btnAllMask">Toda la foto</button>
         </div>
-
-        <button class="btn primary wide" id="btnShake">Sacudir sin mover el teléfono</button>
       </div>
 
-      <!-- ============ GRABAR ============ -->
-      <div class="panel" data-m="rec" role="tabpanel">
-        <p class="lede">La app sacude la zona sola, o grabás lo que hagas con el teléfono.</p>
-
-        <div class="group">
-          <div class="group-head"><span>Formato</span></div>
-          <div class="seg" id="segFormat">
-            <button data-v="video" aria-pressed="true">Video</button>
-            <button data-v="gif" aria-pressed="false">GIF</button>
-          </div>
-          <div class="seg" id="segMotion">
-            <button data-v="jelly" aria-pressed="true">Sacudida automática</button>
-            <button data-v="live" aria-pressed="false">Sensores</button>
-          </div>
-          <div class="ctl">
-            <div class="ctl-top"><label for="sDur">Duración</label><output id="oDur">4,0 s</output></div>
-            <input type="range" id="sDur" min="15" max="80" value="40">
-          </div>
-        </div>
-
-        <button class="btn primary wide" id="btnRec">Grabar</button>
-        <div class="progress" id="recProgress" hidden><i></i></div>
-
-        <div class="preview" id="preview">
-          <div class="group-head"><span>Resultado</span><span class="hint" id="recStat"></span></div>
-          <div id="previewSlot"></div>
-          <button class="btn wide" id="btnDownload">Guardar en el teléfono</button>
-        </div>
-
-        <p class="note">En el iPhone se guarda por la hoja de compartir.</p>
-      </div>
+      <button class="btn primary wide" id="btnShake">Sacudir sin mover el teléfono</button>
+      <button class="btn wide" id="btnOpenDrawer">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+        Física, gravedad y grabación
+      </button>
     </section>
   </main>
 </div>
+
+<!-- ================= cajón lateral: lo que no se toca todos los días ===== -->
+<aside class="drawer" id="drawer">
+  <div class="sheet-head">
+    <h2>Ajustes</h2>
+    <button class="btn ghost" id="btnCloseDrawer">Cerrar</button>
+  </div>
+
+  <div class="group" id="grpAuto" hidden>
+    <div class="group-head"><span>Detección</span><span class="hint">movela para buscar el objeto</span></div>
+    <div class="ctl">
+      <div class="ctl-top"><label for="sAuto">Cobertura</label><output id="oAuto">0</output></div>
+      <input type="range" id="sAuto" min="0" max="100" value="0">
+    </div>
+    <div class="row">
+      <button class="btn" id="btnAuto">Detectar de nuevo</button>
+      <button class="btn ghost" id="btnViewAuto" aria-pressed="false">Ver zona</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><span>Material</span></div>
+    <div class="ctl">
+      <div class="ctl-top"><label for="sStiff">Rigidez</label><output id="oStiff">31</output></div>
+      <input type="range" id="sStiff" min="0" max="100" value="31">
+    </div>
+    <div class="ctl">
+      <div class="ctl-top"><label for="sBounce">Rebote</label><output id="oBounce">65</output></div>
+      <input type="range" id="sBounce" min="0" max="100" value="65">
+    </div>
+    <div class="ctl">
+      <div class="ctl-top"><label for="sAmp">Amplitud</label><output id="oAmp">11</output></div>
+      <input type="range" id="sAmp" min="0" max="100" value="11">
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><span>Al tocar</span></div>
+    <button class="btn wide" id="btnDent" aria-pressed="true"><span class="led"></span>Hundir el dedo</button>
+    <div class="ctl" id="ctlTouch">
+      <div class="ctl-top"><label for="sTouch">Tamaño del toque</label><output id="oTouch">pulgar</output></div>
+      <input type="range" id="sTouch" min="0" max="100" value="45">
+    </div>
+    <div class="ctl" id="ctlShade">
+      <div class="ctl-top"><label for="sShade">Sombra del hundido</label><output id="oShade">0</output></div>
+      <input type="range" id="sShade" min="0" max="100" value="0">
+    </div>
+    <p class="note">Apagado, el dedo sólo arrastra: no abre hoyo ni sombra.</p>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><span>Gravedad</span><span class="hint" id="gravStat">cuelga hacia abajo</span></div>
+    <div class="gravrow">
+      <div class="gravpad" id="gravPad" role="group" aria-label="Dirección de la gravedad">
+        <button data-g="-1,-1" aria-pressed="false" aria-label="Arriba a la izquierda">↖</button>
+        <button data-g="0,-1" aria-pressed="false" aria-label="Arriba">↑</button>
+        <button data-g="1,-1" aria-pressed="false" aria-label="Arriba a la derecha">↗</button>
+        <button data-g="-1,0" aria-pressed="false" aria-label="Izquierda">←</button>
+        <button data-g="0,0" aria-pressed="false" aria-label="Sin gravedad">○</button>
+        <button data-g="1,0" aria-pressed="false" aria-label="Derecha">→</button>
+        <button data-g="-1,1" aria-pressed="false" aria-label="Abajo a la izquierda">↙</button>
+        <button data-g="0,1" aria-pressed="true" aria-label="Abajo">↓</button>
+        <button data-g="1,1" aria-pressed="false" aria-label="Abajo a la derecha">↘</button>
+      </div>
+      <div class="grow">
+        <div class="ctl">
+          <div class="ctl-top"><label for="sGrav">Peso</label><output id="oGrav">35</output></div>
+          <input type="range" id="sGrav" min="0" max="100" value="35">
+        </div>
+        <button class="btn" id="btnGravFollow" aria-pressed="false">Del teléfono</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <div class="ctl-top"><label for="sSens">Sensibilidad al movimiento</label><output id="oSens">55</output></div>
+      <input type="range" id="sSens" min="0" max="100" value="55">
+    </div>
+    <p class="note">El centro es sin gravedad. <b>Del teléfono</b> la saca de la inclinación real: acostado no pesa, parado cuelga. La sensibilidad es cuánto pega la sacudida.</p>
+  </div>
+
+  <div class="group" id="grpRec">
+    <div class="group-head"><span>Grabar</span></div>
+    <div class="seg" id="segFormat">
+      <button data-v="video" aria-pressed="true">Video</button>
+      <button data-v="gif" aria-pressed="false">GIF</button>
+    </div>
+    <div class="seg" id="segMotion">
+      <button data-v="jelly" aria-pressed="true">Sacudida automática</button>
+      <button data-v="live" aria-pressed="false">Sensores</button>
+    </div>
+    <div class="ctl">
+      <div class="ctl-top"><label for="sDur">Duración</label><output id="oDur">4,0 s</output></div>
+      <input type="range" id="sDur" min="15" max="80" value="40">
+    </div>
+    <button class="btn primary wide" id="btnRec">Grabar</button>
+    <div class="progress" id="recProgress" hidden><i></i></div>
+    <div class="preview" id="preview">
+      <div class="group-head"><span>Resultado</span><span class="hint" id="recStat"></span></div>
+      <div id="previewSlot"></div>
+      <button class="btn wide" id="btnDownload">Guardar en el teléfono</button>
+    </div>
+    <p class="note">En el iPhone se guarda por la hoja de compartir.</p>
+  </div>
+</aside>
 
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet">
@@ -639,6 +663,7 @@ const S = {
   preset: "jelly",
   gx: 0, gy: 1,          // gravedad hacia abajo: una masa blanda pesa
   gravFollow: false,
+  dent: true,        // ¿el dedo hunde, o sólo arrastra?
   format: "video",
   recMotion: "jelly",
   recording: false,
@@ -1148,7 +1173,9 @@ const PRESETS = {
  * según el navegador.
  */
 function gravityVec() {
-  const g = (S.p.grav / 100) * 0.055;
+  // 0,066 en vez de 0,055: inclinando el teléfono de un lado al otro el
+  // objeto se recuesta un 20% más que antes.
+  const g = (S.p.grav / 100) * 0.066;
   if (g <= 0) return { x: 0, y: 0 };
   let x = S.gx, y = S.gy;
   if (S.gravFollow) {
@@ -1366,7 +1393,7 @@ function physicsStep(dt) {
   // El anclaje sólo tiene que morder cerca del borde de la zona. Con la
   // potencia 3 y 400 de rigidez, media máscara quedaba agarrotada y un
   // objeto grande casi no se movía.
-  const kAnchor = 260, cAnchor = 8;
+  const kAnchor = 320, cAnchor = 8;
   const ox = P.ox, oy = P.oy, vx = P.vx, vy = P.vy, w = P.w, px = P.px, py = P.py;
   const qvx = P.qvx, qvy = P.qvy, isl = P.isl;
   px.set(ox); py.set(oy); qvx.set(vx); qvy.set(vy);
@@ -1437,7 +1464,10 @@ function physicsStep(dt) {
           tgx -= gdx / gd * amp;
           tgy -= gdy / gd * amp;
         }
-        const kg = 1200 * gf * wn;
+        // Peso cuadrático en vez de lineal: adentro el toque se siente igual
+        // (wn = 1), pero en el fleco del borde el dedo tira mucho menos, y el
+        // contorno del objeto deja de estirarse cuando lo movés.
+        const kg = 1200 * gf * wn * wn;
         fx += kg * (tgx - px[n]);
         fy += kg * (tgy - py[n]);
       }
@@ -1544,10 +1574,11 @@ function grabStart(u, v, radiusFrac) {
   const rf = radiusFrac || touchRadiusFrac();
   const r = Math.max(1.2, rf * GX);
   // el hundido acompaña al tamaño: una yema hunde poco, la mano hunde más
-  const dent = DENT * clamp(rf / 0.13, 0.45, 1.45);
+  const dent0 = DENT * clamp(rf / 0.13, 0.45, 1.45);
+  const dent = S.dent ? dent0 : 0;
   const gi = Math.round(clamp(u, 0, 1) * (GX - 1)), gj = Math.round(clamp(v, 0, 1) * (GY - 1));
   const g = { cx: clamp(u, 0, 1) * (GX - 1), cy: clamp(v, 0, 1) * (GY - 1), r: r, r2: r * r,
-              dent: dent, tx: 0, ty: 0, press: 0, isl: P.isl[gj * GX + gi] };
+              dent: dent, dent0: dent0, tx: 0, ty: 0, press: 0, isl: P.isl[gj * GX + gi] };
   P.grabs.push(g);
   P.awake = true;
   return g;
@@ -2112,13 +2143,18 @@ function onMotion(e) {
   if (!S.maskPainted) return;
   // Rango más alto que antes: con la amplitud baja que pide la carne, la
   // escala vieja movía menos de medio por ciento de la foto y no se veía.
-  const scale = 0.0015 + (S.p.sens / 100) * 0.0085;
+  // Un 40% más de pegada que antes: sacudir el teléfono se notaba poco al
+  // lado del dedo. Sigue siendo un empuje suave, no un latigazo.
+  const scale = 0.0021 + (S.p.sens / 100) * 0.0119;
   // el contenido se queda atrás respecto del teléfono: de ahí el signo en X
-  setDrive(clamp(-ax * scale, -0.055, 0.055), clamp(ay * scale, -0.055, 0.055));
+  // El tope viejo (0,055) era lo que frenaba las sacudidas fuertes: por más
+  // que subiera la escala, el empuje llegaba siempre al mismo techo. 0,078
+  // deja lugar de sobra antes del límite de almacenamiento (STORE = 0,10).
+  setDrive(clamp(-ax * scale, -0.078, 0.078), clamp(ay * scale, -0.078, 0.078));
   const now = performance.now();
-  if (mag0 > 9 && now - SENS.lastKick > 300) {
+  if (mag0 > 7 && now - SENS.lastKick > 260) {
     SENS.lastKick = now;
-    kick(0.35 + Math.min(0.45, mag0 / 45), Math.atan2(ay, -ax));
+    kick(0.45 + Math.min(0.5, mag0 / 40), Math.atan2(ay, -ax));
   }
 }
 
@@ -2702,17 +2738,33 @@ function bindSeg(id, apply) {
   });
 }
 
+/* Ya no hay pestañas: la app es una sola pantalla (foto + pincel) y todo lo
+   demás vive en el cajón. La función queda porque el resto del código habla
+   en términos de S.mode. */
 function setMode(m) {
   S.mode = m;
-  $$(".modes button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.m === m)));
-  $$(".panel").forEach((p) => p.classList.toggle("on", p.dataset.m === m));
   const tg = $("#stageToggle");
-  tg.hidden = m === "rec";
-  tg.className = "stage-toggle m-" + m;
-  if (m === "rec" && S.editing) setEditing(false);
+  if (tg) { tg.hidden = false; tg.className = "stage-toggle m-jelly"; }
   clearUndo();
   paintOverlay();
   markDirty();
+}
+
+function openDrawer() {
+  $("#drawer").classList.add("on");
+  $("#scrim").classList.add("on");
+  if (S.editing) setEditing(false);
+}
+function closeDrawer() {
+  $("#drawer").classList.remove("on");
+  if (!$("#sheet").classList.contains("on")) $("#scrim").classList.remove("on");
+}
+
+function refreshDent() {
+  const b = $("#btnDent");
+  b.setAttribute("aria-pressed", String(S.dent));
+  b.lastChild.textContent = S.dent ? "Hundir el dedo" : "Sin hundido";
+  $("#ctlShade").classList.toggle("off", !S.dent);
 }
 
 /* En el iPhone no existe fullscreen para elementos que no sean video, así
@@ -2749,7 +2801,14 @@ function setEditing(on) {
 }
 
 function bindUI() {
-  $$(".modes button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.m)));
+  $("#btnOpenDrawer").addEventListener("click", openDrawer);
+  $("#btnCloseDrawer").addEventListener("click", closeDrawer);
+  $("#btnDent").addEventListener("click", () => {
+    S.dent = !S.dent;
+    refreshDent();
+    P.grabs.forEach((g) => { g.dent = S.dent ? g.dent0 : 0; });
+    markDirty();
+  });
   $("#segEdit").addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
@@ -2882,7 +2941,7 @@ function bindUI() {
   });
   $("#btnExitFull").addEventListener("click", () => setImmersive(false));
   $("#zoomBadge").addEventListener("click", resetView);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.immersive) setImmersive(false); });
+  document.addEventListener("keydown", (e) => { if (e.key !== "Escape") return; if (S.immersive) setImmersive(false); else { closeDrawer(); closeSheet(); } });
   document.addEventListener("fullscreenchange", () => {
     if (!document.fullscreenElement && S.immersive) setImmersive(false);
   });
@@ -2892,7 +2951,7 @@ function bindUI() {
   $("#btnCopyUrl").addEventListener("click", copyOwnUrl);
   $("#btnLibrary").addEventListener("click", openSheet);
   $("#btnCloseSheet").addEventListener("click", closeSheet);
-  $("#scrim").addEventListener("click", closeSheet);
+  $("#scrim").addEventListener("click", () => { closeSheet(); closeDrawer(); });
   $("#btnSave").addEventListener("click", saveProject);
   $("#btnDownload").addEventListener("click", downloadExport);
 
@@ -2980,6 +3039,7 @@ function init() {
   setMode("jelly");
   setEditing(false);
   refreshGravity();
+  refreshDent();
   sizeCanvases();
   window.addEventListener("resize", sizeCanvases);
   if (window.ResizeObserver) new ResizeObserver(sizeCanvases).observe($("#stage"));
