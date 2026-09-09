@@ -51,6 +51,9 @@ button,input,select{font-family:inherit;color:inherit}
 button{cursor:pointer;border:none;background:none}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
+/* manipulation apaga el zoom del doble toque y deja el scroll y el pellizco
+   de la página intactos. Sobre la foto, touch-action:none ya bloquea todo. */
+html,body{touch-action:manipulation}
 .app{display:flex;flex-direction:column;min-height:100dvh}
 
 /* ---------- barra superior ---------- */
@@ -534,7 +537,7 @@ input[type=range]::-moz-range-thumb{
 
   <div class="group">
     <div class="group-head"><span>Al tocar</span></div>
-    <button class="btn wide" id="btnDent" aria-pressed="true"><span class="led"></span>Hundir el dedo</button>
+    <button class="btn wide" id="btnDent" aria-pressed="false"><span class="led"></span>Sin hundido</button>
     <div class="ctl" id="ctlTouch">
       <div class="ctl-top"><label for="sTouch">Tamaño del toque</label><output id="oTouch">pulgar</output></div>
       <input type="range" id="sTouch" min="0" max="100" value="45">
@@ -644,7 +647,11 @@ const MWMAX = 256;      // resolución de la máscara
 // el material siga sintiéndose igual.
 const GX = 48, GY = 48;
 const ZOOM = 1.08;      // recorte fijo que oculta el estirado de los bordes
-const STORE = 0.10;     // desplazamiento máximo almacenable, en unidades uv
+// 0,145: el techo viejo (0,10) era lo que hacía que a partir de una sacudida
+// media todo se viera igual por más fuerte que la movieras. Con este margen un
+// sacudón violento se distingue de un vaivén, y la resolución del byte sigue
+// siendo de una milésima de foto, invisible.
+const STORE = 0.145;    // desplazamiento máximo almacenable, en unidades uv
 
 // ¿estamos incrustados? iOS no entrega los sensores dentro de un marco.
 let FRAMED = false;
@@ -672,7 +679,7 @@ const S = {
   preset: "jelly",
   gx: 0, gy: 1,          // gravedad hacia abajo: una masa blanda pesa
   gravFollow: false,
-  dent: true,        // ¿el dedo hunde, o sólo arrastra?
+  dent: false,       // ¿el dedo hunde, o sólo arrastra? Arranca apagado.
   format: "video",
   recMotion: "jelly",
   recording: false,
@@ -1033,7 +1040,7 @@ const VERT = [
 const FRAG = [
   "precision highp float;",
   "varying vec2 vUv;",
-  "uniform sampler2D uImage,uMask,uDisp;",
+  "uniform sampler2D uImage,uMask,uDisp,uFill;",
   "uniform vec2 uPan;",
   "uniform vec2 uLight;",
   "uniform float uZoom,uDispMax,uJelly,uShade,uAO;",
@@ -1045,6 +1052,14 @@ const FRAG = [
   "  s -= dsp * m;",
   "  s = clamp(s, 0.0005, 0.9995);",
   "  vec3 img = texture2D(uImage, s).rgb;",
+  // Si al estirarse la muestra cae FUERA de lo pintado, no traemos el fondo
+  // (eso es lo que abría agujeros oscuros dentro del objeto): traemos el
+  // color de la propia zona pintada, extendido hacia afuera.
+  "  if(m > 0.02){",
+  "    float msrc = texture2D(uMask, s).r;",
+  "    float fuera = 1.0 - smoothstep(0.35, 0.85, msrc);",
+  "    if(fuera > 0.001) img = mix(img, texture2D(uFill, s).rgb, m * fuera);",
+  "  }",
   "  if(uShade > 0.001){",
   // una celda de la malla: por debajo de eso sólo se ve la interpolación
   "    float e = 0.021;",
@@ -1089,18 +1104,20 @@ function gl_init() {
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 
   ["uPan", "uLight", "uShade", "uAO", "uZoom", "uDispMax", "uJelly",
-   "uImage", "uMask", "uDisp"].forEach((n) => { U[n] = gl.getUniformLocation(prog, n); });
+   "uImage", "uMask", "uDisp", "uFill"].forEach((n) => { U[n] = gl.getUniformLocation(prog, n); });
 
-  gl.uniform1i(U.uImage, 0); gl.uniform1i(U.uMask, 2); gl.uniform1i(U.uDisp, 3);
+  gl.uniform1i(U.uImage, 0); gl.uniform1i(U.uFill, 1); gl.uniform1i(U.uMask, 2); gl.uniform1i(U.uDisp, 3);
   gl.uniform1f(U.uDispMax, STORE);
   gl.uniform2f(U.uLight, -1.0, -1.0); // luz desde arriba a la izquierda
   gl.uniform1f(U.uZoom, ZOOM);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
   TEX.image = newTex();
+  TEX.fill = newTex();
   TEX.mask = newTex();
   TEX.disp = newTex();
 
+  gl_setFill(new Uint8Array([0, 0, 0, 255]), 1, 1);
   gl_setMask(new Float32Array([0]), 1, 1);
   gl_uploadDisp(new Uint8Array([128, 128, 128, 255]), 1, 1);
   return true;
@@ -1135,6 +1152,74 @@ function gl_setMask(f, w, h) {
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, maskBytes);
   markDirty();
 }
+function gl_setFill(bytes, w, h) {
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, TEX.fill);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+  markDirty();
+}
+
+/**
+ * Color de la zona pintada, extendido hacia afuera. Se copia la foto donde hay
+ * pintura y después se va derramando ese color sobre lo que quedó vacío, capa
+ * por capa. Se calcula a media resolución de la máscara: el relleno sólo se ve
+ * estirado, así que no necesita detalle, y así no frena al soltar el pincel.
+ */
+const FILL = { w: 0, h: 0, rgb: null, val: null, prev: null, bytes: null, cv: null };
+function buildFill() {
+  if (!S.hasImage || !S.mask) return;
+  const w = Math.max(16, S.mw >> 1), h = Math.max(16, S.mh >> 1), N = w * h;
+  if (FILL.w !== w || FILL.h !== h) {
+    FILL.w = w; FILL.h = h;
+    FILL.rgb = new Float32Array(N * 3);
+    FILL.val = new Uint8Array(N);
+    FILL.prev = new Uint8Array(N);
+    FILL.bytes = new Uint8Array(N * 4);
+    FILL.cv = document.createElement("canvas");
+  }
+  FILL.cv.width = w; FILL.cv.height = h;
+  const ctx = FILL.cv.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(S.imgCanvas, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h).data;
+
+  const rgb = FILL.rgb, val = FILL.val, prev = FILL.prev;
+  const src = S.maskSoft || S.mask;
+  for (let y = 0; y < h; y++) {
+    const my = Math.min(S.mh - 1, y * 2);
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x, o = i * 4;
+      const dentro = src[my * S.mw + Math.min(S.mw - 1, x * 2)] > 0.75;
+      val[i] = dentro ? 1 : 0;
+      rgb[i * 3] = px[o]; rgb[i * 3 + 1] = px[o + 1]; rgb[i * 3 + 2] = px[o + 2];
+    }
+  }
+  for (let pass = 0; pass < 48; pass++) {
+    prev.set(val);
+    let cambio = false;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (prev[i]) continue;
+        let r = 0, g = 0, b = 0, c = 0;
+        const t = (m) => { if (prev[m]) { r += rgb[m * 3]; g += rgb[m * 3 + 1]; b += rgb[m * 3 + 2]; c++; } };
+        if (x > 0) t(i - 1);
+        if (x < w - 1) t(i + 1);
+        if (y > 0) t(i - w);
+        if (y < h - 1) t(i + w);
+        if (!c) continue;
+        rgb[i * 3] = r / c; rgb[i * 3 + 1] = g / c; rgb[i * 3 + 2] = b / c;
+        val[i] = 1; cambio = true;
+      }
+    }
+    if (!cambio) break;
+  }
+  const b = FILL.bytes;
+  for (let i = 0, o = 0; i < N; i++, o += 4) {
+    b[o] = rgb[i * 3]; b[o + 1] = rgb[i * 3 + 1]; b[o + 2] = rgb[i * 3 + 2]; b[o + 3] = 255;
+  }
+  gl_setFill(b, w, h);
+}
+
 function gl_uploadDisp(bytes, w, h) {
   gl.activeTexture(gl.TEXTURE3);
   gl.bindTexture(gl.TEXTURE_2D, TEX.disp);
@@ -1464,7 +1549,11 @@ function physicsStep(dt) {
         // Hoyo en el centro y REBORDE alrededor: el material que baja tiene
         // que salir por algún lado. Un hoyo pelado se lee como un agujero;
         // con el borde levantado se lee como carne empujada por el dedo.
-        // El empujón sólo llega por donde hay pintura firme.
+        // El empujón sólo llega por donde hay pintura firme, pero el freno
+        // se aplica en proporción a lo pintado que está el nodo: el fleco del
+        // borde del objeto —que igual se mueve poco— no se endurece, y lo que
+        // sí queda bloqueado es una mancha entera al otro lado de una franja
+        // floja. Sin esto, arreglar las uniones estropeaba el contorno.
         const rf2 = g.reach ? g.reach[n] : 1;
         if (rf2 <= 0.004) continue;
         const ring = u2 * Math.exp(1 - u2);
@@ -1618,6 +1707,26 @@ function computeReach(g) {
         if (j < GY - 1) chk(n + GX);
         if (best > r[n] + 1e-6) { r[n] = best; cambio = true; }
       }
+    }
+    if (!cambio) break;
+  }
+  // Segunda etapa: el fleco hereda gratis el alcance de su vecino MÁS pintado.
+  // Bajar de firme a flojo es el borde del propio objeto y no tiene que
+  // frenarse; lo que cuesta es volver a subir del otro lado, que es lo que
+  // pasa al cruzar una franja floja hacia otra mancha. Como la herencia sólo
+  // baja, nunca puede trepar de vuelta a la mancha vecina.
+  for (let pass = 0; pass < 24; pass++) {
+    let cambio = false;
+    for (let n = 0; n < N; n++) {
+      if (w[n] < 0.012) continue;
+      const i = n % GX, j = (n / GX) | 0;
+      let best = r[n];
+      const chk = (m) => { if (w[m] > w[n] + 1e-4 && r[m] > best) best = r[m]; };
+      if (i > 0) chk(n - 1);
+      if (i < GX - 1) chk(n + 1);
+      if (j > 0) chk(n - GX);
+      if (j < GY - 1) chk(n + GX);
+      if (best > r[n] + 1e-6) { r[n] = best; cambio = true; }
     }
     if (!cambio) break;
   }
@@ -1939,6 +2048,7 @@ function finishStroke() {
   boxBlur(S.rigid, rsoft, S.mw, S.mh, Math.max(1, Math.round(S.mw / 120)));
   S.rigidSoft = rsoft;
   gl_setMask(soft, S.mw, S.mh);
+  buildFill();
   sampleMaskToGrid(soft);
   let covered = 0, rigidPx = 0;
   for (let i = 0; i < S.mask.length; i++) {
@@ -2152,6 +2262,9 @@ function bindStage() {
   stage.addEventListener("pointercancel", endTouch);
   stage.addEventListener("lostpointercapture", endTouch);
   stage.addEventListener("contextmenu", (e) => e.preventDefault());
+  // por si el navegador igual intenta acercar la foto al doble toque
+  stage.addEventListener("dblclick", (e) => e.preventDefault());
+  pc.addEventListener("dblclick", (e) => e.preventDefault());
   pc.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
@@ -2206,11 +2319,18 @@ function onMotion(e) {
   // El tope viejo (0,055) era lo que frenaba las sacudidas fuertes: por más
   // que subiera la escala, el empuje llegaba siempre al mismo techo. 0,078
   // deja lugar de sobra antes del límite de almacenamiento (STORE = 0,10).
-  setDrive(clamp(-ax * scale, -0.078, 0.078), clamp(ay * scale, -0.078, 0.078));
+  // Rodilla blanda en vez de tope seco: por fuerte que sacudas siempre suma
+  // un poco más, y nunca se pasa del límite. Antes, a partir de cierto punto
+  // daba exactamente lo mismo sacudir fuerte que flojo.
+  const LIM = 0.105;
+  const suave = (v) => LIM * Math.tanh(v / LIM);
+  setDrive(suave(-ax * scale), suave(ay * scale));
   const now = performance.now();
-  if (mag0 > 7 && now - SENS.lastKick > 260) {
+  // El golpe seco sí escala con la violencia del sacudón: es lo que hace que
+  // un manotazo se distinga de un vaivén tranquilo.
+  if (mag0 > 5.5 && now - SENS.lastKick > 220) {
     SENS.lastKick = now;
-    kick(0.45 + Math.min(0.5, mag0 / 40), Math.atan2(ay, -ax));
+    kick(0.30 + Math.min(1.5, mag0 / 16), Math.atan2(ay, -ax));
   }
 }
 
