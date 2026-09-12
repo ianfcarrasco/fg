@@ -707,7 +707,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const VERSION = "v12";   // se muestra en la barra: delata una caché vieja
+const VERSION = "v13";   // se muestra en la barra: delata una caché vieja
 const TEXMAX = 1600;    // lado máximo de la textura de la foto
 const DWMAX = 384;      // resolución de trabajo del mapa de profundidad
 const MWMAX = 256;      // resolución de la máscara
@@ -1492,6 +1492,30 @@ function buildIslands() {
   isl.fill(0);
   if (!src) { wh.fill(0); return; }
   sampleGrid(src, wh);
+  // Con esferas, cada esfera ES una isla, se toquen o no. Dos pechos que se
+  // rozan en el medio no tienen por qué arrastrarse: son dos cuerpos. El
+  // fleco difuminado que queda afuera de toda elipse hereda la esfera vecina.
+  if (S.zona === "esfera" && S.smap) {
+    for (let n = 0; n < GX * GY; n++) isl[n] = P.sid[n] >= 0 && P.w[n] >= 0.012 ? P.sid[n] + 1 : 0;
+    for (let pass = 0; pass < 3; pass++) {
+      let cambio = false;
+      for (let j = 0; j < GY; j++) {
+        for (let i = 0; i < GX; i++) {
+          const n = j * GX + i;
+          if (isl[n] || P.w[n] < 0.012) continue;
+          let best = -1, bid = 0;
+          const t = (m) => { if (isl[m] && wh[m] > best) { best = wh[m]; bid = isl[m]; } };
+          if (i > 0) t(n - 1);
+          if (i < GX - 1) t(n + 1);
+          if (j > 0) t(n - GX);
+          if (j < GY - 1) t(n + GX);
+          if (bid) { isl[n] = bid; cambio = true; }
+        }
+      }
+      if (!cambio) break;
+    }
+    return;
+  }
   const cola = new Int32Array(GX * GY);
   let n0 = 0, id = 0;
   const SEM = 0.06;
@@ -2466,9 +2490,21 @@ function bindStage() {
 const SENS = { ref: null, gravX: 0, gravY: 0, gotOrient: false, gotMotion: false, lastKick: 0,
                hasTilt: false, gvx: 0, gvy: 0, tilt: 0, mag: 0, peak: 0, timer: 0 };
 
+/* Si al activar no llegó nada, no se abandona: en una notebook quieta sobre la
+   mesa el acelerómetro de Windows no manda lecturas hasta que algo se mueve.
+   El primer dato que aparece pone todo en marcha. */
+function sensoresLlegaron() {
+  if (S.sensors !== "esperando") return;
+  S.sensors = "on";
+  setSensorChip("on", "Sensores activos");
+  $("#framedNote").hidden = true;
+  toast("Llegaron los sensores. Incliná y sacudí.");
+}
+
 function onOrient(e) {
   if (e.beta === null || e.gamma === null) return;
   SENS.gotOrient = true;
+  sensoresLlegaron();
   if (!SENS.ref) SENS.ref = { b: e.beta, g: e.gamma };
   // el marco de referencia se re-centra muy despacio: no queda trabado torcido
   SENS.ref.b = lerp(SENS.ref.b, e.beta, 0.003);
@@ -2495,14 +2531,30 @@ function onOrient(e) {
 
 function onMotion(e) {
   SENS.gotMotion = true;
+  sensoresLlegaron();
   let ax = 0, ay = 0;
   const a = e.acceleration;
+  const g = e.accelerationIncludingGravity;
+  if (g && g.x !== null && g.x !== undefined) {
+    SENS.gravX = lerp(SENS.gravX, g.x || 0, 0.08);
+    SENS.gravY = lerp(SENS.gravY, g.y || 0, 0.08);
+    SENS.gravZ = lerp(SENS.gravZ || 0, g.z || 0, 0.08);
+    // Sin giroscopio no hay deviceorientation (pasa en Windows y en algunos
+    // Android): la inclinación se saca del acelerómetro filtrado. Convención
+    // de la norma (Chrome/Android): en reposo el vector apunta hacia ARRIBA,
+    // así que gravedad = −aceleración. Con el borde derecho abajo, x < 0.
+    if (!SENS.gotOrient) {
+      const n = Math.hypot(SENS.gravX, SENS.gravY, SENS.gravZ) || 9.81;
+      SENS.gvx = clamp(-SENS.gravX / n, -1, 1);
+      SENS.gvy = clamp(SENS.gravY / n, -1, 1);
+      SENS.hasTilt = true;
+      SENS.tilt = Math.round(Math.asin(clamp(Math.hypot(SENS.gvx, SENS.gvy), 0, 1)) * 180 / Math.PI);
+      if (S.gravFollow) wakePhysics();
+    }
+  }
   if (a && a.x !== null && a.x !== undefined) { ax = a.x || 0; ay = a.y || 0; }
   else {
-    const g = e.accelerationIncludingGravity;
     if (!g || g.x === null) return;
-    SENS.gravX = lerp(SENS.gravX, g.x || 0, 0.06);
-    SENS.gravY = lerp(SENS.gravY, g.y || 0, 0.06);
     ax = (g.x || 0) - SENS.gravX; ay = (g.y || 0) - SENS.gravY;
   }
   const mag0 = Math.hypot(ax, ay);
@@ -2539,13 +2591,14 @@ function onMotion(e) {
 function sensorReadout() {
   const el = $("#sensorLive");
   if (!el) return;
-  if (S.sensors !== "on") { el.hidden = true; return; }
+  if (S.sensors !== "on" && S.sensors !== "esperando") { el.hidden = true; return; }
   el.hidden = false;
-  if (!SENS.gotOrient && !SENS.gotMotion) { el.textContent = "esperando datos del teléfono…"; return; }
+  if (!SENS.gotOrient && !SENS.gotMotion) { el.textContent = "esperando movimiento del aparato…"; return; }
   const g = (SENS.peak / 9.81).toFixed(2).replace(".", ",");
   SENS.peak = SENS.peak * 0.55;
   el.textContent = "inclinación " + SENS.tilt + "°  ·  sacudida " + g + " g" +
-    (S.gravFollow ? "  ·  gravedad del teléfono" : "");
+    (SENS.gotOrient ? "" : "  ·  sólo acelerómetro") +
+    (S.gravFollow ? "  ·  gravedad del aparato" : "");
 }
 
 /* Última carta cuando estamos incrustados: abrir esta misma página en una
@@ -2637,14 +2690,13 @@ async function enableSensors() {
   toast("Sensores activos. Incliná el teléfono y sacudilo.");
   setTimeout(() => {
     if (S.sensors === "on" && !SENS.gotOrient && !SENS.gotMotion) {
-      S.sensors = "nodata";
-      setSensorChip("nodata", "Sin datos");
-      $("#framedNote").hidden = false;
-      $("#sensorLive").hidden = true;
-      clearInterval(SENS.timer);
-      window.removeEventListener("deviceorientation", onOrient);
-      window.removeEventListener("devicemotion", onMotion);
-      toast("El permiso salió bien, pero acá adentro no llega ningún dato.", true);
+      // No se sueltan los oyentes: si el aparato está quieto, Windows no
+      // manda nada hasta que se mueve. Incrustado en un marco sí es inútil.
+      S.sensors = "esperando";
+      setSensorChip("nodata", "Esperando movimiento");
+      if (FRAMED) $("#framedNote").hidden = false;
+      toast(FRAMED ? "El permiso salió bien, pero acá adentro no llega ningún dato."
+                   : "Todavía no llega nada. Mové o incliná el aparato: si tiene sensor, arranca solo.", true);
     }
   }, 2000);
 }
