@@ -587,9 +587,11 @@ input[type=range]::-moz-range-thumb{
     <div class="group-head"><span>Copia de seguridad</span><span class="hint">sin la foto</span></div>
     <div class="row">
       <button class="btn" id="btnExportCfg">Guardar ajustes</button>
-      <label class="btn" for="fileCfg">Abrir ajustes<input type="file" id="fileCfg" accept=".gelatina,application/json" class="sr"></label>
+      <label class="btn" for="fileCfg">Abrir archivo<input type="file" id="fileCfg" accept=".gelatina,application/json" class="sr"></label>
     </div>
-    <p class="note">Guarda lo pintado y todos los valores en un archivo <b>.gelatina</b>, chico y sin la foto adentro. Sirve para volver a un ajuste que te gustó, o para pasarlo a otra foto parecida.</p>
+    <button class="btn wide" id="btnExportFull">Guardar proyecto completo</button>
+    <p class="note"><b>Ajustes</b>: lo pintado y los valores, unos pocos KB, sin la foto. Sirve para pasar un ajuste a otra foto parecida.<br>
+    <b>Proyecto completo</b>: lo mismo más la foto adentro, para abrirlo en otro teléfono tal cual quedó. La foto va revuelta: ningún visor, galería ni app la reconoce, sólo ésta.</p>
   </div>
 
   <div class="group" id="grpRec">
@@ -644,7 +646,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const VERSION = "v8";   // se muestra en la barra: delata una caché vieja
+const VERSION = "v9";   // se muestra en la barra: delata una caché vieja
 const TEXMAX = 1600;    // lado máximo de la textura de la foto
 const DWMAX = 384;      // resolución de trabajo del mapa de profundidad
 const MWMAX = 256;      // resolución de la máscara
@@ -2844,7 +2846,27 @@ async function inflate(u8) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function exportConfig() {
+/**
+ * La foto dentro del archivo va revuelta con una secuencia pseudoaleatoria
+ * (xorshift sembrado por un número que viaja en el propio archivo). No es
+ * cifrado y no lo pretende: quien sepa lo que hace puede darlo vuelta. Lo que
+ * sí garantiza es que el archivo no sea una foto para NADA: no tiene la firma
+ * de JPEG, así que ninguna galería, visor, previsualización del sistema ni
+ * buscador de imágenes lo reconoce ni lo abre. Renombrarlo a .jpg no sirve.
+ * Como es XOR, la misma función lo revuelve y lo desenreda.
+ */
+function revolver(u8, semilla) {
+  let s = (semilla ^ 0x9E3779B9) >>> 0;
+  for (let i = 0; i < u8.length; i++) {
+    s ^= (s << 13); s >>>= 0;
+    s ^= (s >>> 17);
+    s ^= (s << 5); s >>>= 0;
+    u8[i] = u8[i] ^ (s & 255);
+  }
+  return u8;
+}
+
+async function exportConfig(conFoto) {
   if (!S.hasImage || !S.mask) { toast("Primero cargá una foto y pintá la zona.", true); return; }
   let hayRigido = false;
   for (let i = 0; i < S.rigid.length; i++) if (S.rigid[i] > 0.004) { hayRigido = true; break; }
@@ -2862,17 +2884,55 @@ async function exportConfig() {
     p: Object.assign({}, S.p),
     gx: S.gx, gy: S.gy, gravFollow: S.gravFollow, dent: S.dent, preset: S.preset,
   };
-  const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+  if (conFoto) {
+    const jpg = await toBlob(S.imgCanvas, "image/jpeg", 0.86);
+    if (!jpg) { toast("Este navegador no pudo preparar la foto.", true); return; }
+    const bytes = new Uint8Array(await jpg.arrayBuffer());
+    data.semilla = (Math.random() * 0xFFFFFFFF) >>> 0;
+    data.foto = b64enc(revolver(bytes, data.semilla));
+  }
+  const blob = new Blob([JSON.stringify(data)], { type: "application/octet-stream" });
   const stamp2 = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
-  await saveBlob(blob, "ajuste-" + stamp2 + ".gelatina", "Ajuste guardado. La foto no va adentro.");
+  const kb = Math.round(blob.size / 1024);
+  await saveBlob(blob, (conFoto ? "proyecto-" : "ajuste-") + stamp2 + ".gelatina",
+    conFoto ? "Proyecto completo guardado (" + kb + " KB). La foto va adentro, revuelta."
+            : "Ajuste guardado (" + kb + " KB). La foto no va adentro.");
 }
 
 async function importConfig(file) {
-  if (!S.hasImage) { toast("Cargá primero la foto sobre la que querés aplicarlo.", true); return; }
   let data;
   try { data = JSON.parse(await file.text()); } catch (e) { data = null; }
   if (!data || data.app !== "foto-gelatina" || !(data.mapas || data.mask)) {
     toast("Ese archivo no es un ajuste de esta app.", true);
+    return;
+  }
+  // Proyecto completo: primero se rearma la foto que viene adentro.
+  if (data.foto) {
+    try {
+      const bytes = revolver(b64dec(data.foto), data.semilla >>> 0);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }));
+      const im = new Image();
+      im.src = url;
+      if (im.decode) await im.decode(); else await new Promise((ok, no) => { im.onload = ok; im.onerror = no; });
+      S.imgCanvas = fitCanvas(im, TEXMAX);
+      S.iw = S.imgCanvas.width; S.ih = S.imgCanvas.height;
+      URL.revokeObjectURL(url);
+      S.mw = data.mw; S.mh = data.mh;
+      S.mask = new Float32Array(S.mw * S.mh);
+      S.rigid = new Float32Array(S.mw * S.mh);
+      S.gray = null; S.depth = null; S.maskSoft = null; S.rigidSoft = null;
+      S.hasImage = true;
+      gl_setImage(S.imgCanvas);
+      const stage = $("#stage");
+      stage.style.setProperty("--ar", S.iw + " / " + S.ih);
+      stage.classList.add("loaded");
+      sizeCanvases();
+    } catch (e) {
+      toast("El proyecto está dañado: no se pudo rearmar la foto.", true);
+      return;
+    }
+  } else if (!S.hasImage) {
+    toast("Cargá primero la foto sobre la que querés aplicarlo.", true);
     return;
   }
   const sw = data.mw || S.mw, sh = data.mh || S.mh;
@@ -2917,7 +2977,11 @@ async function importConfig(file) {
   physicsReset();
   paintOverlay();
   markDirty();
-  toast(sw === S.mw && sh === S.mh ? "Ajuste aplicado." : "Ajuste aplicado y reescalado a esta foto.");
+  clearUndo();
+  closeDrawer();
+  setEditing(false);
+  toast(data.foto ? "Proyecto abierto, con su foto."
+        : (sw === S.mw && sh === S.mh ? "Ajuste aplicado." : "Ajuste aplicado y reescalado a esta foto."));
 }
 
 /* ==================================================================
@@ -3202,7 +3266,8 @@ function bindUI() {
   $("#scrim").addEventListener("click", () => { closeSheet(); closeDrawer(); });
   $("#btnSave").addEventListener("click", saveProject);
   $("#btnDownload").addEventListener("click", downloadExport);
-  $("#btnExportCfg").addEventListener("click", exportConfig);
+  $("#btnExportCfg").addEventListener("click", () => exportConfig(false));
+  $("#btnExportFull").addEventListener("click", () => exportConfig(true));
   $("#fileCfg").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];
     if (f) importConfig(f);
