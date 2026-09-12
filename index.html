@@ -474,21 +474,42 @@ input[type=range]::-moz-range-thumb{
 
       <div class="group">
         <div class="group-head"><span>Zona viva</span><span class="hint" id="maskStat">sin pintar</span></div>
+        <div class="seg" id="segZona">
+          <button data-v="pincel" aria-pressed="true">Pincel</button>
+          <button data-v="esfera" aria-pressed="false">Esfera 3D</button>
+        </div>
+
+        <div id="ctlEsfera" hidden>
+          <p class="note">Arrastrá la esfera sobre la foto para ubicarla. Decile qué forma tiene el objeto y el temblor deja de ser plano: cerca del contorno la superficie se va de canto y casi no se mueve, y lo que hundís de un lado sale por el otro, como un globo con agua.</p>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sRx">Ancho</label><output id="oRx">26</output></div>
+            <input type="range" id="sRx" min="3" max="70" value="26">
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sRy">Alto</label><output id="oRy">26</output></div>
+            <input type="range" id="sRy" min="3" max="70" value="26">
+          </div>
+          <div class="ctl">
+            <div class="ctl-top"><label for="sRz">Profundidad</label><output id="oRz">esfera</output></div>
+            <input type="range" id="sRz" min="0" max="100" value="40">
+          </div>
+        </div>
+
         <div class="seg" id="segJelly">
           <button data-v="add" aria-pressed="true"><span class="swatch"></span>Mover</button>
           <button data-v="rigid" aria-pressed="false"><span class="swatch"></span>Rígido</button>
           <button data-v="erase" aria-pressed="false">Borrar</button>
         </div>
-        <div class="ctl">
+        <div class="ctl" id="ctlBrush">
           <div class="ctl-top"><label for="sBrushJ">Tamaño</label><output id="oBrushJ">20</output></div>
           <input type="range" id="sBrushJ" min="1" max="100" value="20">
         </div>
-        <div class="ctl">
+        <div class="ctl" id="ctlFlow">
           <div class="ctl-top"><label for="sFlow" id="flowLabel">Movimiento del pincel</label><output id="oFlow">100%</output></div>
           <input type="range" id="sFlow" min="0" max="100" value="100">
         </div>
-        <p class="note"><b>Mover</b> marca lo que tiembla. <b>Rígido</b> viaja con el temblor pero no se deforma, como una frutilla sobre el postre.</p>
-        <div class="row">
+        <p class="note" id="notaPincel"><b>Mover</b> marca lo que tiembla. <b>Rígido</b> viaja con el temblor pero no se deforma, como una frutilla sobre el postre.</p>
+        <div class="row" id="rowPincel">
           <button class="btn" id="btnClearMask">Limpiar</button>
           <button class="btn" id="btnAllMask">Toda la foto</button>
         </div>
@@ -646,7 +667,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const VERSION = "v9";   // se muestra en la barra: delata una caché vieja
+const VERSION = "v10";   // se muestra en la barra: delata una caché vieja
 const TEXMAX = 1600;    // lado máximo de la textura de la foto
 const DWMAX = 384;      // resolución de trabajo del mapa de profundidad
 const MWMAX = 256;      // resolución de la máscara
@@ -688,6 +709,11 @@ const S = {
   gx: 0, gy: 1,          // gravedad hacia abajo: una masa blanda pesa
   gravFollow: false,
   dent: false,       // ¿el dedo hunde, o sólo arrastra? Arranca apagado.
+  zona: "pincel",    // "pincel" | "esfera"
+  // La esfera describe la FORMA del objeto de la foto: su huella da la zona
+  // viva y su relieve dice hacia dónde mira cada punto de la superficie.
+  shape: { cx: 0.5, cy: 0.55, rx: 0.26, ry: 0.26, rz: 1.0 },
+  zmap: null,        // coseno del ángulo de la superficie con la cámara, 0..1
   format: "video",
   recMotion: "jelly",
   recording: false,
@@ -962,6 +988,44 @@ function applyAutoMask(cov) {
   markDirty();
 }
 
+/**
+ * Huella y relieve de la esfera, a resolución de máscara.
+ *
+ * La superficie es z = rz·√(1−r²) en unidades del radio, con r la distancia
+ * normalizada al centro de la elipse. Lo que se guarda no es z sino la
+ * componente en z de la normal:
+ *
+ *   nz = √( (1−r²) / (1−r²+rz²r²) )
+ *
+ * que es cuánto "mira a la cámara" cada punto. En el centro vale 1 y en el
+ * borde 0: ahí la superficie se va de canto y un movimiento real sobre ella
+ * casi no se ve en la foto. Con rz chico la esfera es un disco y nz vale 1 en
+ * todos lados; con rz grande es una pelota bien marcada.
+ */
+function rebuildShape() {
+  if (!S.hasImage || !S.mask) return;
+  const sh = S.shape, w = S.mw, h = S.mh;
+  if (!S.zmap || S.zmap.length !== w * h) S.zmap = new Float32Array(w * h);
+  const rz2 = sh.rz * sh.rz;
+  for (let y = 0; y < h; y++) {
+    const v = (y + 0.5) / h - sh.cy;
+    for (let x = 0; x < w; x++) {
+      const u = (x + 0.5) / w - sh.cx;
+      const i = y * w + x;
+      const r = Math.hypot(u / Math.max(1e-4, sh.rx), v / Math.max(1e-4, sh.ry));
+      // borde suave para que el temblor se apague en vez de cortarse
+      const t = clamp((1.0 - r) / 0.10, 0, 1);
+      S.mask[i] = t * t * (3 - 2 * t);
+      const r2 = Math.min(0.9995, r * r);
+      S.zmap[i] = r < 1 ? Math.sqrt((1 - r2) / (1 - r2 + rz2 * r2)) : 0;
+    }
+  }
+  S.maskDirty = true;
+  finishStroke();
+  paintOverlay();
+  markDirty();
+}
+
 /* ------------------------------------------------------ carga de la foto */
 function fitCanvas(src, maxDim) {
   const w0 = src.naturalWidth || src.width, h0 = src.naturalHeight || src.height;
@@ -1056,8 +1120,13 @@ const FRAG = [
   "void main(){",
   "  vec2 s = (vUv-0.5)/uZoom + 0.5 + uPan;",
   "  float m = texture2D(uMask, s).r;",
-  "  vec2 dsp = (texture2D(uDisp, s).rg * 255.0 - 128.0) / 127.0 * uDispMax * uJelly;",
-  "  s -= dsp * m;",
+  // La componente z de la normal viaja en el alfa del mapa. Sobre una esfera,
+  // cerca del contorno la superficie se ve de canto: un movimiento real ahí
+  // se proyecta en muy pocos píxeles. Sin esto la pelota se deforma como un
+  // recorte plano. En modo pincel el alfa vale 1 y no cambia nada.
+  "  vec4 dv = texture2D(uDisp, s);",
+  "  vec2 dsp = (dv.rg * 255.0 - 128.0) / 127.0 * uDispMax * uJelly;",
+  "  s -= dsp * m * dv.a;",
   "  s = clamp(s, 0.0005, 0.9995);",
   "  vec3 img = texture2D(uImage, s).rgb;",
   // Si al estirarse la muestra cae FUERA de lo pintado, no traemos el fondo
@@ -1175,6 +1244,7 @@ const P = {
   hs: new Float32Array(GX * GY),
   px: new Float32Array(GX * GY), py: new Float32Array(GX * GY), // instantánea del paso anterior
   qvx: new Float32Array(GX * GY), qvy: new Float32Array(GX * GY),
+  nz: new Float32Array(GX * GY),  // cuánto mira a la cámara la superficie
   wh: new Float32Array(GX * GY),  // máscara sin difuminar: define las islas
   isl: new Int32Array(GX * GY),   // a qué mancha pertenece cada nodo (0 = ninguna)
   bytes: new Uint8Array(GX * GY * 4),
@@ -1220,7 +1290,7 @@ const DENT = 0.040; // cuánto se hunde al apoyar el dedo, en unidades uv
 function physicsReset() {
   P.ox.fill(0); P.oy.fill(0); P.vx.fill(0); P.vy.fill(0);
   P.driveX = P.driveY = 0; P.burst = 0; P.grabs.length = 0; P.awake = false;
-  P.r.fill(0); P.h.fill(0); P.hs.fill(0); P.isl.fill(0);
+  P.r.fill(0); P.h.fill(0); P.hs.fill(0); P.isl.fill(0); P.nz.fill(1);
   sampleMaskToGrid();
   physicsUpload();
 }
@@ -1338,6 +1408,7 @@ function sampleMaskToGrid(src) {
       P.w[gy * GX + gx] = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
     }
   }
+  if (S.zmap) sampleGrid(S.zmap, P.nz); else P.nz.fill(1);
   buildIslands();
   buildRigidComponents();
 }
@@ -1436,6 +1507,25 @@ function physicsStep(dt) {
   }
   dx += G.x; dy += G.y;
 
+  // ------- globo con agua: lo que se hunde de un lado sale por el otro -----
+  // El agua no se comprime, así que el volumen que mete el dedo al hundirse
+  // tiene que reaparecer en otro lado. Medir la divergencia del campo no
+  // sirve: sumada sobre toda la mancha da cero por el teorema de la
+  // divergencia, con borde quieto. Lo que sí funciona es ir a la fuente y
+  // calcular el volumen que desplaza cada dedo —hondura por área— y
+  // devolverlo como una presión que empuja la superficie hacia afuera.
+  const shCx = S.shape.cx * (GX - 1), shCy = S.shape.cy * (GY - 1);
+  const radioG = Math.max(2, S.shape.rx * (GX - 1));
+  let presion = 0;
+  if (S.zona === "esfera" && S.hasImage) {
+    let vol = 0;
+    for (let gi = 0; gi < grabs.length; gi++) {
+      const gg = grabs[gi];
+      vol += gg.press * gg.dent * gg.r2;
+    }
+    presion = 500 * vol / (radioG * radioG);
+  }
+
   let maxV = 0, maxD = 0;
   for (let j = 0; j < GY; j++) {
     for (let i = 0; i < GX; i++) {
@@ -1515,6 +1605,18 @@ function physicsStep(dt) {
         fx -= cg * vx[n];
         fy -= cg * vy[n];
       }
+      // La presión del globo empuja hacia afuera, pero NO debajo del dedo (ahí
+      // el que manda es el dedo) y sobre todo cerca del contorno, que es donde
+      // un globo apretado se abulta y donde se ve.
+      if (presion !== 0) {
+        const rx2 = i - shCx, ry2 = j - shCy, rl = Math.hypot(rx2, ry2);
+        if (rl > 0.5) {
+          const rel = Math.min(1.6, rl / radioG);
+          const pf = presion * wn * (1 - maxgf) * rel * rel / rl;
+          fx += pf * rx2;
+          fy += pf * ry2;
+        }
+      }
       let nvx = vx[n] + fx * dt, nvy = vy[n] + fy * dt;
       let nx = px[n] + nvx * dt, ny = py[n] + nvy * dt;
       if (nx > STORE) { nx = STORE; if (nvx > 0) nvx = 0; }
@@ -1581,7 +1683,7 @@ function physicsUpload() {
     b[o] = 128 + Math.round(clamp(P.ox[n] / STORE, -1, 1) * 127);
     b[o + 1] = 128 + Math.round(clamp(P.oy[n] / STORE, -1, 1) * 127);
     b[o + 2] = 128 + Math.round(clamp(P.h[n] / 1.2, -1, 1) * 127);
-    b[o + 3] = 255;
+    b[o + 3] = Math.round(clamp(P.nz[n], 0, 1) * 255);
   }
   gl_uploadDisp(b, GX, GY);
 }
@@ -1895,7 +1997,36 @@ function paintOverlay() {
     ctx.drawImage(maskTmp, ox, oy, pc.width * Z, pc.height * Z);
   }
 
-  if (brushPos && S.editing) {
+  // silueta de la esfera mientras se la ubica; en Probar la foto queda limpia
+  if (S.editing && S.zona === "esfera" && S.hasImage) {
+    const Z = viewZ();
+    const cx = (S.shape.cx - 0.5 - S.view.px) * Z + 0.5;
+    const cy = (S.shape.cy - 0.5 - S.view.py) * Z + 0.5;
+    const rx = S.shape.rx * Z * pc.width, ry = S.shape.ry * Z * pc.height;
+    ctx.save();
+    ctx.translate(cx * pc.width, cy * pc.height);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = "#FF5E92";
+    ctx.lineWidth = Math.max(2, pc.width / 260);
+    ctx.stroke();
+    // dos elipses interiores: dan idea de la panza, o sea de la profundidad
+    const ala = 1 / Math.max(0.2, S.shape.rz);
+    ctx.strokeStyle = "#FF5E9255";
+    ctx.lineWidth = Math.max(1, pc.width / 520);
+    for (const k of [0.45, 0.78]) {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx * Math.min(0.97, k * ala), ry * k, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(3, pc.width / 150), 0, Math.PI * 2);
+    ctx.fillStyle = "#FF5E92";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  if (brushPos && S.editing && S.zona !== "esfera") {
     const rad = brushRadiusFrac() * Math.min(pc.width, pc.height) * viewZ();
     ctx.beginPath();
     ctx.arc(brushPos.x * pc.width, brushPos.y * pc.height, rad, 0, Math.PI * 2);
@@ -2082,10 +2213,18 @@ function bindStage() {
       pinch = { dist: st.dist, cx: st.cx, cy: st.cy, scale: S.view.scale, px: S.view.px, py: S.view.py };
       brushPos = null;
     } else if (paintPts.size === 1) {
-      pushUndo("mask");
-      dragging = true;
-      brushPos = uvFromEvent(e, pc);
-      applyBrush(brushPos);
+      if (S.zona === "esfera") {
+        // un dedo mueve la esfera; el centro salta a donde tocaste
+        dragging = "esfera";
+        const im = uvToImage(uvFromEvent(e, pc));
+        S.shape.cx = clamp(im.x, 0, 1); S.shape.cy = clamp(im.y, 0, 1);
+        rebuildShape();
+      } else {
+        pushUndo("mask");
+        dragging = true;
+        brushPos = uvFromEvent(e, pc);
+        applyBrush(brushPos);
+      }
     }
     paintOverlay();
     e.preventDefault();
@@ -2108,6 +2247,12 @@ function bindStage() {
       paintOverlay();
       return;
     }
+    if (dragging === "esfera") {
+      const im = uvToImage(uvFromEvent(e, pc));
+      S.shape.cx = clamp(im.x, 0, 1); S.shape.cy = clamp(im.y, 0, 1);
+      rebuildShape();
+      return;
+    }
     brushPos = uvFromEvent(e, pc);
     if (dragging) applyBrush(brushPos);
     paintOverlay();
@@ -2116,7 +2261,11 @@ function bindStage() {
   const endStroke = (e) => {
     if (e && paintPts.has(e.pointerId)) paintPts.delete(e.pointerId);
     if (paintPts.size < 2) pinch = null;
-    if (paintPts.size === 0 && dragging) { dragging = false; finishStroke(); }
+    if (paintPts.size === 0 && dragging) {
+      const eraEsfera = dragging === "esfera";
+      dragging = false;
+      if (eraEsfera) physicsReset(); else finishStroke();
+    }
     paintOverlay();
   };
   pc.addEventListener("pointerup", endStroke);
@@ -2883,6 +3032,7 @@ async function exportConfig(conFoto) {
     mapas: b64enc(comp || crudo),
     p: Object.assign({}, S.p),
     gx: S.gx, gy: S.gy, gravFollow: S.gravFollow, dent: S.dent, preset: S.preset,
+    zona: S.zona, shape: Object.assign({}, S.shape),
   };
   if (conFoto) {
     const jpg = await toBlob(S.imgCanvas, "image/jpeg", 0.86);
@@ -2969,6 +3119,18 @@ async function importConfig(file) {
   S.gravFollow = !!data.gravFollow;
   S.dent = data.dent !== false;
   S.preset = data.preset || "jelly";
+  if (data.shape) Object.assign(S.shape, data.shape);
+  if (data.zona) {
+    S.zona = data.zona;
+    $$("#segZona button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === S.zona)));
+    const esf = S.zona === "esfera";
+    ["ctlEsfera"].forEach((id) => { $("#" + id).hidden = !esf; });
+    ["segJelly", "ctlBrush", "ctlFlow", "rowPincel", "notaPincel"].forEach((id) => { $("#" + id).hidden = esf; });
+    $("#sRx").value = Math.round(S.shape.rx * 100); $("#oRx").textContent = Math.round(S.shape.rx * 100);
+    $("#sRy").value = Math.round(S.shape.ry * 100); $("#oRy").textContent = Math.round(S.shape.ry * 100);
+    const vz = Math.round(Math.pow(Math.max(0, (S.shape.rz - 0.12) / 2.4), 1 / 1.4) * 100);
+    $("#sRz").value = vz; $("#oRz").textContent = rzNombre(vz);
+  }
   S.maskDirty = true;
   syncControls();
   refreshGravity();
@@ -3072,6 +3234,28 @@ function closeDrawer() {
   if (!$("#sheet").classList.contains("on")) $("#scrim").classList.remove("on");
 }
 
+/** Mapea el deslizador 0..100 a la profundidad rz, con nombres entendibles. */
+function rzDe(v) { return 0.12 + Math.pow(v / 100, 1.4) * 2.4; }
+function rzNombre(v) { return v < 12 ? "chata" : v < 30 ? "lenteja" : v < 55 ? "esfera" : v < 80 ? "pelota" : "muy redonda"; }
+
+function setZona(z) {
+  S.zona = z;
+  const esf = z === "esfera";
+  $$("#segZona button").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.v === "esfera") === esf)));
+  $("#ctlEsfera").hidden = !esf;
+  $("#segJelly").hidden = esf;
+  $("#ctlBrush").hidden = esf;
+  $("#ctlFlow").hidden = esf;
+  $("#rowPincel").hidden = esf;
+  $("#notaPincel").hidden = esf;
+  // Un globo sin dedo que se hunda no es un globo: al pasar a esfera se
+  // enciende el hundido, que es lo que le da el volumen al apretar.
+  if (esf && !S.dent) { S.dent = true; refreshDent(); }
+  if (esf && S.hasImage) { pushUndo("mask"); rebuildShape(); physicsReset(); }
+  paintOverlay();
+  markDirty();
+}
+
 function refreshDent() {
   const b = $("#btnDent");
   b.setAttribute("aria-pressed", String(S.dent));
@@ -3113,6 +3297,18 @@ function setEditing(on) {
 }
 
 function bindUI() {
+  bindSeg("segZona", setZona);
+  const sliderEsfera = (id, aplicar, salida) => {
+    $("#" + id).addEventListener("input", (e) => {
+      aplicar(+e.target.value);
+      $("#o" + id.slice(1)).textContent = salida(+e.target.value);
+      if (S.hasImage && S.zona === "esfera") { rebuildShape(); physicsReset(); }
+    });
+  };
+  sliderEsfera("sRx", (v) => { S.shape.rx = v / 100; }, (v) => v);
+  sliderEsfera("sRy", (v) => { S.shape.ry = v / 100; }, (v) => v);
+  sliderEsfera("sRz", (v) => { S.shape.rz = rzDe(v); }, rzNombre);
+
   $("#btnOpenDrawer").addEventListener("click", openDrawer);
   $("#btnCloseDrawer").addEventListener("click", closeDrawer);
   $("#btnDent").addEventListener("click", () => {
