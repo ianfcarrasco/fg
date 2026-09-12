@@ -403,6 +403,12 @@ input[type=range]::-moz-range-thumb{
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 @media (min-width:900px){
+  /* En escritorio el cajón NO es modal: se abre al costado, sin velo, y la
+     foto sigue respondiendo al mouse mientras movés rigidez, gravedad, etc.
+     Entre 900 y 1240 px se apoya sobre la bandeja; más ancho, empuja todo y
+     no tapa nada. */
+  .app.drawer-on ~ .scrim.on{opacity:0;pointer-events:none}
+  .drawer{box-shadow:-12px 0 40px #00000060}
   .work{flex-direction:row;gap:0;align-items:flex-start;padding:0}
   .stage-wrap{flex:1;padding:20px;position:sticky;top:53px;align-items:center}
   .stage{width:auto;max-width:100%;margin:0 auto}
@@ -410,6 +416,10 @@ input[type=range]::-moz-range-thumb{
   .stage-foot{display:flex;align-items:center;width:auto;max-width:100%}
   .stage-foot .spacer{display:block;flex:0 0 18px}
   .tray{width:392px;flex:none;margin-top:0;padding:20px 20px 40px;border-left:1px solid var(--line);min-height:calc(100dvh - 53px)}
+}
+
+@media (min-width:1240px){
+  .app.drawer-on .work{padding-right:min(94vw,404px)}
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -697,7 +707,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const VERSION = "v11";   // se muestra en la barra: delata una caché vieja
+const VERSION = "v12";   // se muestra en la barra: delata una caché vieja
 const TEXMAX = 1600;    // lado máximo de la textura de la foto
 const DWMAX = 384;      // resolución de trabajo del mapa de profundidad
 const MWMAX = 256;      // resolución de la máscara
@@ -3324,15 +3334,23 @@ function setMode(m) {
   markDirty();
 }
 
+const esEscritorio = () => window.matchMedia && window.matchMedia("(min-width: 900px)").matches;
 function openDrawer() {
   $("#drawer").classList.add("on");
-  $("#scrim").classList.add("on");
+  document.querySelector(".app").classList.add("drawer-on");
+  // en el teléfono es modal (velo y cierre al tocar afuera); en escritorio
+  // queda al costado y la foto sigue viva
+  if (!esEscritorio()) $("#scrim").classList.add("on");
   if (S.editing) setEditing(false);
+  setTimeout(sizeCanvases, 280);   // el escenario cambia de ancho cuando el cajón empuja
 }
 function closeDrawer() {
   $("#drawer").classList.remove("on");
+  document.querySelector(".app").classList.remove("drawer-on");
   if (!$("#sheet").classList.contains("on")) $("#scrim").classList.remove("on");
+  setTimeout(sizeCanvases, 280);
 }
+function toggleDrawer() { $("#drawer").classList.contains("on") ? closeDrawer() : openDrawer(); }
 
 /** Mapea el deslizador 0..100 a la profundidad rz, con nombres entendibles. */
 function rzDe(v) { return 0.12 + Math.pow(v / 100, 1.4) * 2.4; }
@@ -3453,7 +3471,7 @@ function bindUI() {
     syncShapeUI(); paintOverlay();
   });
 
-  $("#btnOpenDrawer").addEventListener("click", openDrawer);
+  $("#btnOpenDrawer").addEventListener("click", toggleDrawer);
   $("#btnCloseDrawer").addEventListener("click", closeDrawer);
   $("#btnDent").addEventListener("click", () => {
     S.dent = !S.dent;
@@ -3482,6 +3500,10 @@ function bindUI() {
   bindSlider("sSens", "sens");
   bindSlider("sShade", "shade");
   bindSlider("sTouch", "touch", (v) => (v < 18 ? "yema" : v < 45 ? "dedo" : v < 75 ? "pulgar" : "mano"));
+  // Con la malla dormida un cambio de rigidez no se nota hasta el próximo
+  // toque. Despertarla hace que la zona se reacomode enseguida: con gravedad
+  // puesta se ve cómo cuelga distinto al mover la rigidez.
+  ["sStiff", "sBounce", "sAmp"].forEach((id) => $("#" + id).addEventListener("input", () => { wakePhysics(); if (S.p.grav === 0) kick(0.12, Math.PI / 2); }));
   bindSlider("sDur", "dur", (v) => (v / 10).toFixed(1).replace(".", ",") + " s");
   $("#sFlow").addEventListener("input", (e) => {
     const v = +e.target.value;
