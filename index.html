@@ -729,7 +729,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const VERSION = "v15";   // se muestra en la barra: delata una caché vieja
+const VERSION = "v16";   // se muestra en la barra: delata una caché vieja
 const TEXMAX = 1600;    // lado máximo de la textura de la foto
 const DWMAX = 384;      // resolución de trabajo del mapa de profundidad
 const MWMAX = 256;      // resolución de la máscara
@@ -1208,7 +1208,16 @@ const FRAG = [
   // recorte plano. En modo pincel el alfa vale 1 y no cambia nada.
   "  vec4 dv = texture2D(uDisp, s);",
   "  vec2 dsp = (dv.rg * 255.0 - 128.0) / 127.0 * uDispMax * uJelly;",
-  "  s -= dsp * m * dv.a;",
+  "  vec2 mov = dsp * m * dv.a;",
+  // Cerca del borde de la foto el movimiento se apaga, y nunca se va a
+  // buscar color fuera de la imagen. Antes, con la foto entera a la vista,
+  // la zona que tocaba el borde de arriba caía con la gravedad y estiraba la
+  // primera fila de píxeles hacia abajo: una franja de rayas grises, como de
+  // aluminio mojado. El recorte del 8% que había antes lo escondía.
+  "  float dEdge = min(min(s.x, 1.0 - s.x), min(s.y, 1.0 - s.y));",
+  "  mov *= smoothstep(0.0, 0.05, dEdge);",
+  "  mov = clamp(mov, -(1.0 - s), s);",
+  "  s -= mov;",
   "  s = clamp(s, 0.0005, 0.9995);",
   "  vec3 img = texture2D(uImage, s).rgb;",
   // Si al estirarse la muestra cae FUERA de lo pintado, no traemos el fondo
