@@ -295,6 +295,8 @@ input[type=range]::-moz-range-thumb{
 .seg button[data-v="far"][aria-pressed="true"]{color:var(--far)}
 .seg button[data-v="add"][aria-pressed="true"]{color:var(--jelly)}
 .seg button[data-v="rigid"][aria-pressed="true"]{color:var(--rigid)}
+#segMotor{flex-wrap:wrap}
+#segMotor button{flex:1 1 30%;font-size:11.5px;padding:8px 4px}
 
 .presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .presets button{
@@ -645,6 +647,26 @@ input[type=range]::-moz-range-thumb{
   </div>
 
   <div class="group">
+    <div class="group-head"><span>Movimiento continuo</span><span class="hint">sin sensores</span></div>
+    <div class="seg" id="segMotor">
+      <button data-v="off" aria-pressed="true">Quieto</button>
+      <button data-v="vertical" aria-pressed="false">Arriba y abajo</button>
+      <button data-v="lateral" aria-pressed="false">De lado</button>
+      <button data-v="circular" aria-pressed="false">Circular</button>
+      <button data-v="golpes" aria-pressed="false">Golpes</button>
+    </div>
+    <div class="ctl">
+      <div class="ctl-top"><label for="sRitmo">Ritmo</label><output id="oRitmo">1,7 por segundo</output></div>
+      <input type="range" id="sRitmo" min="0" max="100" value="45">
+    </div>
+    <div class="ctl">
+      <div class="ctl-top"><label for="sFuerza">Fuerza</label><output id="oFuerza">40</output></div>
+      <input type="range" id="sFuerza" min="0" max="100" value="40">
+    </div>
+    <p class="note">Mueve la zona solo, como si alguien caminara o sacudiera el aparato. Se suma a lo que hagas con el dedo y a la gravedad. <b>Golpes</b> da un sacudón seco a cada compás.</p>
+  </div>
+
+  <div class="group">
     <div class="group-head"><span>Copia de seguridad</span><span class="hint">sin la foto</span></div>
     <div class="row">
       <button class="btn" id="btnExportCfg">Guardar ajustes</button>
@@ -707,7 +729,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const VERSION = "v13";   // se muestra en la barra: delata una caché vieja
+const VERSION = "v15";   // se muestra en la barra: delata una caché vieja
 const TEXMAX = 1600;    // lado máximo de la textura de la foto
 const DWMAX = 384;      // resolución de trabajo del mapa de profundidad
 const MWMAX = 256;      // resolución de la máscara
@@ -768,7 +790,8 @@ const S = {
   view: { scale: 1, px: 0, py: 0 },   // zoom y encuadre mientras se pinta
   viewAuto: false,
   sensors: "off",   // off | on | denied | nodata | unsupported
-  p: { stiff: 31, bounce: 65, amp: 11, sens: 55, dur: 40, flow: 100, rflow: 100, eflow: 0, grav: 35, auto: 0, touch: 45, shade: 0 },
+  p: { stiff: 31, bounce: 65, amp: 11, sens: 55, dur: 40, flow: 100, rflow: 100, eflow: 0, grav: 35, auto: 0, touch: 45, shade: 0,
+       motor: "off", ritmo: 45, fuerza: 40 },
 };
 
 /* Sólo se redibuja cuando algo cambió: en reposo el bucle no toca la GPU. */
@@ -1112,7 +1135,7 @@ function adoptImage(src) {
   S.mh = Math.max(8, Math.round(S.ih * mk));
   S.mask = new Float32Array(S.mw * S.mh);
   S.rigid = new Float32Array(S.mw * S.mh);
-  S.maskSoft = null; S.rigidSoft = null;
+  S.maskSoft = null; S.rigidSoft = null; S.zmap = null; S.smap = null;
   S.maskPainted = false;
   S.maskDirty = true;
 
@@ -1120,7 +1143,8 @@ function adoptImage(src) {
   gl_setImage(S.imgCanvas);
   // La detección automática está apagada: la foto entra limpia y la zona la
   // pinta el usuario. Así dos manchas separadas quedan separadas de verdad.
-  finishStroke();
+  // En modo esfera, la esfera se dibuja de una sobre la foto nueva.
+  if (S.zona === "esfera") rebuildShape(); else finishStroke();
   physicsReset();
 
   const stage = $("#stage");
@@ -1467,8 +1491,12 @@ function sampleMaskToGrid(src) {
       P.w[gy * GX + gx] = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
     }
   }
-  if (S.zmap) sampleGrid(S.zmap, P.nz); else P.nz.fill(1);
-  if (S.smap) {
+  // El relieve y la pertenencia a esferas sólo valen en modo esfera. Si
+  // quedaban de una esfera anterior y volvías al pincel, lo pintado fuera de
+  // esa esfera heredaba nz = 0 y no se movía nada en pantalla.
+  const conEsfera = S.zona === "esfera";
+  if (conEsfera && S.zmap) sampleGrid(S.zmap, P.nz); else P.nz.fill(1);
+  if (conEsfera && S.smap) {
     for (let gy = 0; gy < GY; gy++) {
       const my = Math.round(gy / (GY - 1) * (S.mh - 1));
       for (let gx = 0; gx < GX; gx++) P.sid[gy * GX + gx] = S.smap[my * S.mw + Math.round(gx / (GX - 1) * (S.mw - 1))];
@@ -1593,6 +1621,27 @@ function physicsStep(dt) {
     dx += Math.cos(P.burstDir) * a * Math.sin(P.burstPhase);
     dy += Math.sin(P.burstDir) * a * Math.sin(P.burstPhase);
     P.burst = Math.max(0, P.burst - dt * 1.6);
+  }
+  // ------- movimiento continuo: un motor en vez de los sensores -----------
+  // Un vaivén de referencia que la malla sigue con su propia inercia; por eso
+  // sale con rebote y retraso, no como una animación calcada.
+  if (S.p.motor !== "off" && S.maskPainted) {
+    const hz = 0.25 + (S.p.ritmo / 100) * 3.0;
+    P.motorFase = (P.motorFase || 0) + dt * hz * Math.PI * 2;
+    const A = (S.p.fuerza / 100) * 0.10;
+    const f = P.motorFase;
+    if (S.p.motor === "vertical") dy += A * Math.sin(f);
+    else if (S.p.motor === "lateral") dx += A * Math.sin(f);
+    else if (S.p.motor === "circular") { dx += A * Math.cos(f); dy += A * Math.sin(f); }
+    else if (S.p.motor === "golpes") {
+      // un sacudón seco por compás, en una dirección que cambia
+      if (f >= Math.PI * 2) {
+        P.motorFase -= Math.PI * 2;
+        P.motorDir = ((P.motorDir || 0) + 2.4) % (Math.PI * 2);
+        kick(0.25 + (S.p.fuerza / 100) * 1.3, P.motorDir);
+      }
+    }
+    if (f >= Math.PI * 2 && S.p.motor !== "golpes") P.motorFase -= Math.PI * 2;
   }
   dx += G.x; dy += G.y;
 
@@ -1767,7 +1816,7 @@ function physicsStep(dt) {
   // Con gravedad el reposo NO es cero: la zona queda caída. Por eso se mide
   // la velocidad y el cambio por paso, y sólo se pone todo en cero cuando no
   // hay gravedad, que es cuando el reposo verdadero sí es cero.
-  const idle = !grabs.length && Math.abs(P.driveX) < 1e-5 && Math.abs(P.driveY) < 1e-5 && P.burst <= 0;
+  const idle = !grabs.length && Math.abs(P.driveX) < 1e-5 && Math.abs(P.driveY) < 1e-5 && P.burst <= 0 && S.p.motor === "off";
   if (idle && maxV < 8e-4 && maxD < 1e-6) {
     if (G.x === 0 && G.y === 0) { P.ox.fill(0); P.oy.fill(0); }
     P.vx.fill(0); P.vy.fill(0);
@@ -1999,6 +2048,7 @@ function frame(t) {
 
   let active = false;
 
+  if (S.hasImage && S.p.motor !== "off" && S.maskPainted) P.awake = true;
   if (S.hasImage && P.awake) {
     M.acc += dt;
     let guard = 0, alive = true;
@@ -2762,6 +2812,7 @@ async function saveProject() {
       dw: S.dw, dh: S.dh, mw: S.mw, mh: S.mh,
       depthBase: f32ToBytes(S.depth), mask: f32ToBytes(S.mask), rigid: f32ToBytes(S.rigid),
       p: Object.assign({}, S.p), preset: S.preset, gx: S.gx, gy: S.gy, gravFollow: S.gravFollow,
+      dent: S.dent, zona: S.zona, shapes: S.shapes.map((x) => Object.assign({}, x)),
     };
     await dbPut(rec);
     toast("Proyecto guardado en este teléfono.");
@@ -2789,14 +2840,25 @@ async function openProject(rec) {
     S.mask[i] = rec.mask[i] / 255;
     S.rigid[i] = rec.rigid ? rec.rigid[i] / 255 : 0;
   }
-  S.gray = null; S.maskSoft = null; S.rigidSoft = null; S.maskDirty = true;
+  S.gray = null; S.maskSoft = null; S.rigidSoft = null; S.zmap = null; S.smap = null; S.maskDirty = true;
   S.hasImage = true;
   S.preset = rec.preset || "jelly";
   S.gx = rec.gx || 0; S.gy = rec.gy || 0; S.gravFollow = !!rec.gravFollow;
   Object.assign(S.p, rec.p || {});
+  if (typeof rec.dent === "boolean") S.dent = rec.dent;
+  if (rec.shapes && rec.shapes.length) { S.shapes = rec.shapes.map((x) => Object.assign({}, x)); S.shapeSel = 0; }
   syncControls();
+  refreshDent();
   gl_setImage(S.imgCanvas);
-  finishStroke();
+  // Proyectos viejos no traen zona: se abren en pincel, con lo pintado.
+  const zonaRec = rec.zona || "pincel";
+  S.zona = zonaRec;
+  $$("#segZona button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === zonaRec)));
+  const esf = zonaRec === "esfera";
+  $("#ctlEsfera").hidden = !esf;
+  ["segJelly", "ctlBrush", "ctlFlow", "rowPincel", "notaPincel"].forEach((id) => { $("#" + id).hidden = esf; });
+  syncShapeUI();
+  if (esf) rebuildShape(); else finishStroke();
   physicsReset();
   const stage = $("#stage");
   stage.style.setProperty("--ar", S.iw + " / " + S.ih);
@@ -3341,14 +3403,20 @@ function refreshGravity() {
     : (S.p.grav === 0 ? "sin gravedad" : dirs[S.gx + "," + S.gy] || "sin gravedad");
 }
 
+function refreshMotor() {
+  $$("#segMotor button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === S.p.motor)));
+}
+const ritmoTexto = (v) => (0.25 + (v / 100) * 3.0).toFixed(1).replace(".", ",") + " por segundo";
+
 function syncControls() {
-  const map = { sStiff: "stiff", sBounce: "bounce", sAmp: "amp", sSens: "sens", sDur: "dur", sGrav: "grav", sTouch: "touch", sShade: "shade" };
+  const map = { sStiff: "stiff", sBounce: "bounce", sAmp: "amp", sSens: "sens", sDur: "dur", sGrav: "grav", sTouch: "touch", sShade: "shade", sRitmo: "ritmo", sFuerza: "fuerza" };
   for (const id in map) {
     const el = document.getElementById(id);
     if (el) { el.value = S.p[map[id]]; el.dispatchEvent(new Event("input")); }
   }
   refreshGravity();
   refreshFlow();
+  refreshMotor();
 }
 
 function bindSlider(id, key, fmt) {
@@ -3447,6 +3515,8 @@ function setZona(z) {
   // enciende el hundido, que es lo que le da el volumen al apretar.
   if (esf && !S.dent) { S.dent = true; refreshDent(); }
   if (esf && S.hasImage) { pushUndo("mask"); rebuildShape(); physicsReset(); }
+  // al volver al pincel, lo pintado deja de estar atado al relieve de la esfera
+  if (!esf && S.hasImage) { S.zmap = null; S.smap = null; finishStroke(); physicsReset(); }
   syncShapeUI();
   refreshEsferaBar();
   paintOverlay();
@@ -3557,6 +3627,15 @@ function bindUI() {
   // puesta se ve cómo cuelga distinto al mover la rigidez.
   ["sStiff", "sBounce", "sAmp"].forEach((id) => $("#" + id).addEventListener("input", () => { wakePhysics(); if (S.p.grav === 0) kick(0.12, Math.PI / 2); }));
   bindSlider("sDur", "dur", (v) => (v / 10).toFixed(1).replace(".", ",") + " s");
+  bindSlider("sRitmo", "ritmo", ritmoTexto);
+  bindSlider("sFuerza", "fuerza");
+  bindSeg("segMotor", (v) => {
+    S.p.motor = v;
+    P.motorFase = 0;
+    if (v === "off") { P.driveX = 0; P.driveY = 0; }
+    wakePhysics();
+    if (v !== "off" && !S.maskPainted) toast("Pintá o poné una esfera primero: no hay nada que mover.", true);
+  });
   $("#sFlow").addEventListener("input", (e) => {
     const v = +e.target.value;
     if (S.brushJ === "rigid") S.p.rflow = v;
